@@ -67,7 +67,7 @@ def visualize_graph(matrix):
 
 if __name__ == "__main__":
     # You can change this filename to match your input file
-    input_filename = "tree127.txt"
+    input_filename = "assets/cycle5.txt"
     
     print(f"Reading from {input_filename}...")
     adj_matrix = parse_graph_file(input_filename)
