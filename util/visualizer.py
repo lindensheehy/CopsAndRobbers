@@ -84,9 +84,9 @@ def visualize_graph(matrix, pos):
         pos, 
         with_labels=True, 
         node_color='skyblue', 
-        node_size=300, # Increased size slightly for visibility
+        node_size=180, # Increased size slightly for visibility
         edge_color='gray', 
-        font_size=8, 
+        font_size=6, 
         font_weight='bold'
     )
     
@@ -95,13 +95,23 @@ def visualize_graph(matrix, pos):
     plt.show()
 
 if __name__ == "__main__":
-    # You can change this filename to match your input file
-    input_filename = "../assets/matrices/robertson.txt" 
+    import sys
+
+    # The directory where your files are stored
+    base_path = "../assets/matrices/"
+    
+    # Default to robertson.txt if no argument is provided
+    input_filename = base_path + "robertson.txt"
+    
+    # If a command line argument is provided, use it
+    if len(sys.argv) > 1:
+        # Takes "my_graph.txt" and turns it into "../assets/matrices/my_graph.txt"
+        input_filename = base_path + sys.argv[1]
     
     print(f"Reading from {input_filename}...")
     adj_matrix, positions = parse_graph_file(input_filename)
     
-    # specific check to ensure matrix is square (N x N)
+    # Specific check to ensure matrix is square (N x N)
     rows, cols = adj_matrix.shape
     if rows != cols:
         print(f"Error: Matrix is not square. Found {rows} rows and {cols} columns.")
