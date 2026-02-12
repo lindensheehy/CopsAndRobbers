@@ -60,10 +60,10 @@ Testing suite expansion plan:
 ## 3. Next Steps & Action Items
 
 ### Development
-- [ ] **Variable $k$:** Refactor Python implementation to accept number of cops as a parameter.
-- [ ] **Optimization:** Implement lexicographical sorting for cop position tuples.
-- [ ] **Visualization:** Add visual output for graph states and agent movements.
-- [ ] **Graph Generation:** Generate input matrices for the specific test cases (Robertson, Petersen, Outerplanar variants).
+- **Variable $k$:** Refactor Python implementation to accept number of cops as a parameter.
+- **Optimization:** Implement lexicographical sorting for cop position tuples.
+- **Visualization:** Add visual output for graph states and agent movements.
+- **Graph Generation:** Generate input matrices for the specific test cases (Robertson, Petersen, Outerplanar variants).
 
 ### Schedule & Logistics
 - **Reference:** Scotland Yard board image to be received this weekend.

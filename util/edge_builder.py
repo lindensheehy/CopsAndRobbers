@@ -1,6 +1,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import networkx as nx
 import sys
+import os
 
 # CONFIGURATION
 PICK_TOLERANCE = 15  # Pixel distance to consider a "hover" or "click"
@@ -12,19 +14,14 @@ COLOR_SELECTED = 'limegreen'
 COLOR_EDGE = 'black'
 
 class GraphBuilder:
-    def __init__(self, input_file, output_file=None):
-        # If no output file specified, overwrite the input file
-        self.output_file = output_file if output_file else input_file
+    def __init__(self, matrix_file, positions_file=None):
+        self.matrix_file = matrix_file
+        self.positions_file = positions_file
         
-        # Load data
-        self.coords, initial_matrix = self.load_graph_data(input_file)
-        self.n_nodes = len(self.coords)
-        
-        # Initialize Adjacency matrix
-        if initial_matrix is not None:
-            self.adj_matrix = initial_matrix
-        else:
-            self.adj_matrix = np.zeros((self.n_nodes, self.n_nodes), dtype=int)
+        # Load Data
+        self.adj_matrix = self.load_matrix(matrix_file)
+        self.n_nodes = self.adj_matrix.shape[0]
+        self.coords = self.load_positions(positions_file, self.n_nodes)
         
         # State
         self.selected_node = None
@@ -33,7 +30,10 @@ class GraphBuilder:
 
         # Setup Plot
         self.fig, self.ax = plt.subplots(figsize=(12, 10))
-        self.ax.set_title(f"Graph Editor ({self.n_nodes} nodes)\nClick two nodes to connect/disconnect. Press 'E' to Save.")
+        title_text = f"Edge Builder ({self.n_nodes} nodes)\nClick two nodes to connect/disconnect. Press 'E' to Save Matrix."
+        if not positions_file:
+            title_text += "\n(No positions provided - Using auto-layout)"
+        self.ax.set_title(title_text)
         
         # Scatter plot for nodes
         x_vals = [c[0] for c in self.coords]
@@ -44,7 +44,8 @@ class GraphBuilder:
         for i, (x, y) in enumerate(self.coords):
             self.ax.text(x, y, str(i + 1), fontsize=9, ha='right', va='bottom', zorder=4, fontweight='bold')
 
-        # Invert Y axis to match image coordinate system
+        # Invert Y axis to match image coordinate system (0,0 at top-left)
+        # This keeps it consistent with your previous tools, even if using auto-layout
         self.ax.invert_yaxis()
         self.ax.set_aspect('equal')
 
@@ -57,52 +58,71 @@ class GraphBuilder:
         self.fig.canvas.mpl_connect('key_press_event', self.on_key)
 
         print(f"Graph Editor Started. Loaded {self.n_nodes} nodes.")
+        print(f"Editing file: {self.matrix_file}")
         print("Close window or press 'E' to save changes.")
         plt.show()
 
-    def load_graph_data(self, filepath):
-        coords = []
+    def load_matrix(self, filepath):
+        """Loads adjacency matrix from a text file."""
         matrix_rows = []
-        reading_matrix = False
-        
         try:
             with open(filepath, 'r') as f:
-                lines = f.readlines()
-                
-            for line in lines:
-                line = line.strip()
-                if not line: continue
-                
-                if line == '-':
-                    reading_matrix = True
-                    continue
-                
-                if not reading_matrix:
-                    # Parse Coords "123,456"
-                    parts = line.split(',')
-                    if len(parts) >= 2:
-                        coords.append((float(parts[0]), float(parts[1])))
-                else:
-                    # Parse Matrix Row "01001..."
+                for line in f:
+                    line = line.strip()
+                    if not line: continue
+                    
+                    # Parse row: Convert "0101" string to list
                     row = [int(c) for c in line if c in '01']
                     if row:
                         matrix_rows.append(row)
             
-            matrix = np.array(matrix_rows) if matrix_rows else None
+            if not matrix_rows:
+                print("Error: Matrix file is empty or invalid.")
+                sys.exit(1)
+                
+            return np.array(matrix_rows)
             
-            # Validation
-            if matrix is not None:
-                if matrix.shape[0] != len(coords):
-                    print(f"Warning: Matrix size ({matrix.shape[0]}) does not match coord count ({len(coords)}).")
-            
-            return coords, matrix
-
         except FileNotFoundError:
-            print(f"Error: File '{filepath}' not found.")
+            print(f"Error: Matrix file '{filepath}' not found.")
             sys.exit(1)
 
+    def load_positions(self, filepath, n_nodes):
+        """Loads positions from file or generates them if missing."""
+        coords = []
+        
+        if filepath:
+            try:
+                with open(filepath, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith('-'): continue
+                        
+                        parts = line.split(',')
+                        if len(parts) >= 2:
+                            coords.append((float(parts[0]), float(parts[1])))
+                
+                # Validation
+                if len(coords) != n_nodes:
+                    print(f"Warning: Position count ({len(coords)}) does not match Matrix size ({n_nodes}).")
+                    # If mismatch, we might crash later, but let's try to proceed or pad/truncate
+                    if len(coords) < n_nodes:
+                        print("Padding missing nodes with (0,0)...")
+                        coords.extend([(0,0)] * (n_nodes - len(coords)))
+                    else:
+                        coords = coords[:n_nodes]
+                        
+                return coords
+            except FileNotFoundError:
+                print(f"Warning: Position file '{filepath}' not found. Switching to auto-layout.")
+        
+        # Fallback: Generate Circular Layout
+        # We scale it up to 800x800 so the mouse tolerance works nicely
+        print("Generating auto-layout coordinates...")
+        G = nx.complete_graph(n_nodes)
+        pos_dict = nx.circular_layout(G, scale=400, center=(400, 400))
+        return [pos_dict[i] for i in range(n_nodes)]
+
     def draw_existing_edges(self):
-        # Iterate upper triangle of matrix to avoid duplicates
         rows, cols = self.adj_matrix.shape
         count = 0
         for i in range(rows):
@@ -113,9 +133,7 @@ class GraphBuilder:
         print(f"Visualized {count} existing edges.")
 
     def add_visual_edge(self, u, v):
-        # Ensure u < v
         u, v = (u, v) if u < v else (v, u)
-        
         p1, p2 = self.coords[u], self.coords[v]
         line, = self.ax.plot([p1[0], p2[0]], [p1[1], p2[1]], color=COLOR_EDGE, linestyle='-', alpha=0.6, zorder=1)
         self.edge_lines[(u, v)] = line
@@ -163,17 +181,13 @@ class GraphBuilder:
         self.update_visuals()
 
     def toggle_edge(self, u, v):
-        # Ensure u < v
         u, v = (u, v) if u < v else (v, u)
-        
         if self.adj_matrix[u][v] == 0:
-            # Add
             self.adj_matrix[u][v] = 1
             self.adj_matrix[v][u] = 1
             self.add_visual_edge(u, v)
             print(f"Edge added: {u + 1} - {v + 1}")
         else:
-            # Remove
             self.adj_matrix[u][v] = 0
             self.adj_matrix[v][u] = 0
             self.remove_visual_edge(u, v)
@@ -197,29 +211,22 @@ class GraphBuilder:
 
     def on_key(self, event):
         if event.key == 'e':
-            self.export_file()
+            self.export_matrix()
 
-    def export_file(self):
-        print(f"Saving full graph to {self.output_file}...")
+    def export_matrix(self):
+        print(f"Saving adjacency matrix to {self.matrix_file}...")
         try:
-            with open(self.output_file, 'w') as f:
-                # 1. Write Coordinates
-                for x, y in self.coords:
-                    f.write(f"{int(x)},{int(y)}\n")
-                
-                # 2. Write Separator
-                f.write("-\n")
-                
-                # 3. Write Matrix
+            with open(self.matrix_file, 'w') as f:
                 for row in self.adj_matrix:
                     f.write("".join(map(str, row)) + "\n")
-                    
             print("Done! File saved successfully.")
         except IOError as e:
             print(f"Error saving file: {e}")
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        GraphBuilder(sys.argv[1])
+    if len(sys.argv) < 2:
+        print("Usage: python edge_builder.py <matrix_file.txt> [positions_file.txt]")
     else:
-        print("Usage: python graph_editor.py <graph_file.txt>")
+        matrix_path = sys.argv[1]
+        pos_path = sys.argv[2] if len(sys.argv) > 2 else None
+        GraphBuilder(matrix_path, pos_path)

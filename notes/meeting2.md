@@ -1,7 +1,0 @@
-for each node having a list of incoming edges to make propagation faster. you would update adjacent nodes ON update rather than on the next iteration.
-if ANY combination of cops can win, then ALL combinations of cops can win
-in Scotland yard, after 20 rounds whatever happens the game is over. at some point we will be interested in knowing "okay 3 cops can win but we want to know how many rounds it takes". if in the worst case, 3 cops can win in 50 rounds, it doesn't work. when we propagate, we want to also count the amount of moves it takes.
-when the robber starts on the same node as a cop, it would be 0 rounds (regardless of turn).
-FOR THE LEFT SIDE, whenever you mark a new node, you set its value to that of the BEST CASE node you can reach +1.
-FOR THE RIGHT SIDE, whenever you mark a new node, you set its value to that of the WORST CASE node you can reach +1.
-hopefully we can do the following: think about playing cops and robbers on a path. you have on cop. but imagine that you don't see the robber (at some point this is our goal). can you win? yes, of course its trivial. once the aux graph is built and finished with move counts, how can we recognize that we can win without seeing the robber? what other information would we require if the answer is no?

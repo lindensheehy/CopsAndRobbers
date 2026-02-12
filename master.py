@@ -5,27 +5,39 @@ import subprocess
 import sys
 
 # --- CONFIGURATION ---
-# Define the argument requirements for each tool.
-# Format: "filename.py": [("Label", "FileTypes"), ...]
-# FileTypes is a tuple like (("Text Files", "*.txt"), ("All Files", "*.*"))
+# Format: "filename.py": [("Label", "Type"), ...]
+# Types: "*.txt", "*.png", "int" (for numbers), "any" (no filter)
 TOOL_CONFIG = {
-    "edge_builder.py": [
-        ("Adjacency Matrix", "*.txt")
+    # --- Data Creation Tools ---
+    "pos_builder.py": [
+        ("Graph Image", "*.png")
     ],
     "edge_parser.py": [
         ("Edge List", "*.txt")
     ],
-    "generator.py": [],  # No args
-    "pos_builder.py": [
-        ("Graph Image", "*.png")
+    "edge_builder.py": [
+        ("Adjacency Matrix", "*.txt"),
+        ("Positions (Optional)", "*.txt")
     ],
+    "generator.py": [],  # No args
+
+    # --- Verification & Visualization ---
     "verifier.py": [
         ("Adjacency Matrix", "*.txt"),
-        ("Degrees List", "*.txt")
+        ("Expected Degrees", "*.txt")
     ],
     "visualizer.py": [
         ("Adjacency Matrix", "*.txt"),
-        ("Position List (Optional)", "*.txt") 
+        ("Positions (Optional)", "*.txt") 
+    ],
+
+    # --- Solvers / Algorithms ---
+    "main_algorithm.py": [
+        ("Adjacency Matrix", "*.txt")
+    ],
+    "k_cops.py": [
+        ("Adjacency Matrix", "*.txt"),
+        ("Number of Cops", "int") 
     ]
 }
 
@@ -35,7 +47,7 @@ class MasterApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Cops & Robbers Tool Suite")
-        self.root.geometry("600x700")
+        self.root.geometry("650x750")
 
         # --- Top Section: File List ---
         tk.Label(root, text="Select a Tool", font=("Arial", 12, "bold")).pack(pady=(10, 5))
@@ -48,7 +60,6 @@ class MasterApp:
         self.arg_frame = tk.LabelFrame(root, text="Arguments", padx=10, pady=10)
         self.arg_frame.pack(fill=tk.X, padx=20, pady=10)
         
-        # We will dynamically add widgets to this list
         self.arg_entries = [] 
 
         # --- Bottom Section: Buttons ---
@@ -83,14 +94,12 @@ class MasterApp:
 
     def on_tool_selected(self, event):
         """Updates the Argument Frame based on the selected tool."""
-        # Clear previous inputs
         for widget in self.arg_frame.winfo_children():
             widget.destroy()
         self.arg_entries = []
 
         selection = self.tool_list.curselection()
-        if not selection:
-            return
+        if not selection: return
 
         tool_path = self.tool_list.get(selection[0])
         tool_name = os.path.basename(tool_path)
@@ -102,30 +111,36 @@ class MasterApp:
             if not args_needed:
                 tk.Label(self.arg_frame, text="No arguments required.", fg="gray").pack()
             
-            for i, (label_text, file_type) in enumerate(args_needed):
+            for i, (label_text, arg_type) in enumerate(args_needed):
                 # Row Container
                 row = tk.Frame(self.arg_frame)
-                row.pack(fill=tk.X, pady=2)
+                row.pack(fill=tk.X, pady=4)
                 
                 # Label
                 tk.Label(row, text=label_text, width=20, anchor='w').pack(side=tk.LEFT)
                 
-                # Entry (for path)
-                entry = tk.Entry(row)
-                entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
-                self.arg_entries.append(entry)
-                
-                # Browse Button
-                # We use a lambda with default arg to capture the specific entry/file_type for this loop iteration
-                btn = tk.Button(row, text="Browse...", 
-                                command=lambda e=entry, ft=file_type: self.browse_file(e, ft))
-                btn.pack(side=tk.RIGHT)
+                if arg_type == "int":
+                    # Number Input (Spinbox)
+                    entry = tk.Spinbox(row, from_=1, to=10, width=5)
+                    entry.pack(side=tk.LEFT, padx=5)
+                    self.arg_entries.append(entry)
+                    tk.Label(row, text="(Integer)", fg="gray", font=("Arial", 8)).pack(side=tk.LEFT)
+                    
+                else:
+                    # File Input
+                    entry = tk.Entry(row)
+                    entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+                    self.arg_entries.append(entry)
+                    
+                    # Browse Button
+                    btn = tk.Button(row, text="Browse...", 
+                                    command=lambda e=entry, ft=arg_type: self.browse_file(e, ft))
+                    btn.pack(side=tk.RIGHT)
         else:
             tk.Label(self.arg_frame, text="Unknown tool. Running without arguments.", fg="orange").pack()
 
     def browse_file(self, entry_widget, file_pattern):
         """Opens a file dialog and inserts result into the entry widget."""
-        # Determine initial directory (assets if exists, else current)
         init_dir = DEFAULT_ASSET_DIR if os.path.exists(DEFAULT_ASSET_DIR) else "."
         
         filename = filedialog.askopenfilename(
@@ -135,7 +150,6 @@ class MasterApp:
         )
         
         if filename:
-            # Make path relative if possible for cleaner look
             try:
                 rel_path = os.path.relpath(filename, ".")
                 entry_widget.delete(0, tk.END)
@@ -152,7 +166,7 @@ class MasterApp:
 
         tool_rel_path = self.tool_list.get(selection[0])
         
-        # Collect arguments from entries
+        # Collect arguments
         args = []
         for entry in self.arg_entries:
             val = entry.get().strip()
@@ -165,7 +179,7 @@ class MasterApp:
         print(f"Executing: {' '.join(cmd)}")
         
         try:
-            # Run!
+            # Run in new process
             subprocess.Popen(cmd)
         except Exception as e:
             messagebox.showerror("Error", f"Failed to launch tool:\n{e}")

@@ -2,32 +2,31 @@ import sys
 
 def parse_matrix_from_file(filepath):
     """
-    Skips the coordinate section and reads the adjacency matrix 
-    located after the first '-' separator.
+    Reads a file containing an adjacency matrix (rows of 0s and 1s).
     """
     matrix = []
-    reading_matrix = False
-    
     try:
         with open(filepath, 'r') as f:
             for line in f:
                 line = line.strip()
-                if not line: continue
+                # Skip empty lines or existing separators if any remain
+                if not line or line.startswith('-'): continue
                 
-                if line == '-':
-                    if not reading_matrix:
-                        reading_matrix = True # Found the first separator
-                        continue
-                    else:
-                        break # Found the trailing separator (if any)
+                # Parse row: Convert "0101" string to list [0, 1, 0, 1]
+                # robust check: only grabs valid bits
+                row = [int(c) for c in line if c in '01']
                 
-                if reading_matrix:
-                    # Convert string "0101" to list of ints [0, 1, 0, 1]
-                    # Filter ensures we only grab digits, ignoring potential whitespace
-                    row = [int(c) for c in line if c in '01']
-                    if row:
-                        matrix.append(row)
+                # Only append if valid data found
+                if row:
+                    matrix.append(row)
+        
+        # Validation: Matrix must be square
+        if matrix:
+            if len(matrix) != len(matrix[0]):
+                print(f"Warning: Matrix is not square! {len(matrix)} rows vs {len(matrix[0])} cols.")
+                
         return matrix
+        
     except FileNotFoundError:
         print(f"Error: Graph file '{filepath}' not found.")
         sys.exit(1)
@@ -38,6 +37,10 @@ def load_expected_degrees(filepath):
         with open(filepath, 'r') as f:
             for line in f:
                 line = line.strip()
+                # Skip empty or non-digit lines
+                if not line: continue
+                
+                # Robust parsing: strict digits only
                 if line.isdigit():
                     degrees.append(int(line))
         return degrees
@@ -89,4 +92,4 @@ if __name__ == "__main__":
         degrees_file = sys.argv[2]
         verify_graph(graph_file, degrees_file)
     else:
-        print("Usage: python verify_graph.py <graph_file.txt> <expected_degrees.txt>")
+        print("Usage: python verifier.py <matrix_file.txt> <expected_degrees.txt>")

@@ -2,118 +2,130 @@ import networkx as nx
 import matplotlib.pyplot as plt
 import numpy as np
 import sys
+import os
 
-def parse_graph_file(filepath):
+def parse_matrix(filepath):
     """
-    Reads a text file containing:
-    1. Coordinate list (x,y)
-    2. Separator '-'
-    3. Adjacency matrix rows (0101...)
-    4. Optional trailing '-'
-    
-    Returns: (numpy_matrix, positions_dict)
+    Reads a text file containing adjacency matrix rows (e.g., "0101...").
+    Returns a numpy array.
     """
-    coords = []
     matrix_rows = []
-    reading_mode = "coords" # Switch to "matrix" after hitting first '-'
-    
     try:
         with open(filepath, 'r') as f:
-            lines = f.readlines()
-            
-        for line in lines:
-            line = line.strip()
-            
-            # Skip empty lines
-            if not line:
-                continue
-            
-            if line == '-':
-                if reading_mode == "coords":
-                    reading_mode = "matrix"
+            for line in f:
+                line = line.strip()
+                # Skip empty lines or separator lines if they exist in the file
+                if not line or line.startswith('-'): 
                     continue
-                else:
-                    break # Stop if we hit a second '-'
-            
-            if reading_mode == "coords":
-                # Parse "123,456" into (123, 456)
-                parts = line.split(',')
-                if len(parts) == 2:
-                    coords.append((int(parts[0]), int(parts[1])))
-                    
-            elif reading_mode == "matrix":
-                # Convert string "011" into list of integers [0, 1, 1]
-                # Filter out any non-digit characters just in case
+                
+                # Parse row: Convert "0101" string to list [0, 1, 0, 1]
+                # Filters to ensure we only grab valid bits
                 row = [int(char) for char in line if char in '01']
-                matrix_rows.append(row)
+                
+                # Only append if we actually found data
+                if row:
+                    matrix_rows.append(row)
+                    
+        return np.array(matrix_rows)
+    except FileNotFoundError:
+        print(f"Error: Matrix file '{filepath}' not found.")
+        sys.exit(1)
+
+def parse_positions(filepath):
+    """
+    Reads a text file containing coordinates "x,y".
+    Returns a dict {node_id: (x, y)} suitable for NetworkX.
+    """
+    coords = []
+    try:
+        with open(filepath, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('-'): 
+                    continue
+                
+                parts = line.split(',')
+                if len(parts) >= 2:
+                    coords.append((float(parts[0]), float(parts[1])))
         
-        # Convert coords list to a dict {node_id: (x, y)}
-        # We need to invert Y because matplotlib plot origin is bottom-left, 
-        # but image coords are top-left.
+        # Create dictionary
+        # We invert the Y-axis because image coordinates (Top-Left 0,0)
+        # differ from Matplotlib coordinates (Bottom-Left 0,0)
         pos_dict = {}
         if coords:
             max_y = max(c[1] for c in coords)
             for i, (x, y) in enumerate(coords):
-                pos_dict[i] = (x, max_y - y) # Flip Y axis
+                pos_dict[i] = (x, max_y - y)
                 
-        return np.array(matrix_rows), pos_dict
-
+        return pos_dict
     except FileNotFoundError:
-        print(f"Error: The file '{filepath}' was not found.")
-        sys.exit(1)
+        print(f"Error: Position file '{filepath}' not found.")
+        return None
 
-def visualize_graph(matrix, pos):
+def visualize_graph(matrix, pos_dict=None):
     """
-    Takes a numpy adjacency matrix and a position dict, converts to NetworkX graph, and plots it.
+    Plots the graph using NetworkX.
     """
     # Create the graph from the numpy matrix
     G = nx.from_numpy_array(matrix)
     
-    # Validation: Ensure we have positions for all nodes
-    if len(pos) != len(G.nodes):
-        print(f"Warning: Position count ({len(pos)}) does not match Node count ({len(G.nodes)}).")
-        # Fallback to spring layout if counts don't match
+    # Determine Layout
+    if pos_dict is None:
+        print("No position file provided. Using auto-generated Spring Layout.")
         pos = nx.spring_layout(G, seed=42)
+    else:
+        # Validate count
+        if len(pos_dict) != len(G.nodes):
+            print(f"Warning: Position count ({len(pos_dict)}) does not match Node count ({len(G.nodes)}).")
+        pos = pos_dict
 
     # Set up the visual plot
-    plt.figure(figsize=(8, 6))
+    plt.figure(figsize=(10, 8))
     
-    # Draw the graph nodes, edges, and labels using the imported positions
     nx.draw(
         G, 
         pos, 
         with_labels=True, 
         node_color='skyblue', 
-        node_size=180, # Increased size slightly for visibility
+        node_size=300, 
         edge_color='gray', 
-        font_size=6, 
+        font_size=8, 
         font_weight='bold'
     )
     
-    plt.title("Scotland Yard Graph Visualization")
-    plt.axis('off') # Hide the axis ticks
+    title = "Graph Visualization"
+    if pos_dict:
+        title += " (Custom Positions)"
+    else:
+        title += " (Auto Layout)"
+        
+    plt.title(title)
+    plt.axis('off')
     plt.show()
 
 if __name__ == "__main__":
-    import sys
+    # Strict Argument Checking
+    if len(sys.argv) < 2:
+        print("Usage: python visualizer.py <matrix_file.txt> [positions_file.txt]")
+        sys.exit(1)
 
-    # The directory where your files are stored
-    base_path = "../assets/matrices/"
+    # 1. Parse Matrix (Mandatory)
+    matrix_path = sys.argv[1]
+    print(f"Loading matrix from: {matrix_path}")
+    adj_matrix = parse_matrix(matrix_path)
     
-    # Default to robertson.txt if no argument is provided
-    input_filename = base_path + "robertson.txt"
-    
-    # If a command line argument is provided, use it
-    if len(sys.argv) > 1:
-        # Takes "my_graph.txt" and turns it into "../assets/matrices/my_graph.txt"
-        input_filename = base_path + sys.argv[1]
-    
-    print(f"Reading from {input_filename}...")
-    adj_matrix, positions = parse_graph_file(input_filename)
-    
-    # Specific check to ensure matrix is square (N x N)
+    # Validation: Matrix must be square
     rows, cols = adj_matrix.shape
     if rows != cols:
         print(f"Error: Matrix is not square. Found {rows} rows and {cols} columns.")
-    else:
-        visualize_graph(adj_matrix, positions)
+        sys.exit(1)
+
+    # 2. Parse Positions (Optional)
+    positions = None
+    if len(sys.argv) > 2:
+        pos_path = sys.argv[2]
+        print(f"Loading positions from: {pos_path}")
+        positions = parse_positions(pos_path)
+
+    # 3. Visualize
+    visualize_graph(adj_matrix, positions)

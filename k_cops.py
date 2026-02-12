@@ -241,32 +241,23 @@ class CopsAndRobbersSolver:
 if __name__ == "__main__":
     # Check arguments: python script.py <filename> <num_cops>
     if len(sys.argv) != 3:
-        print("Usage: python cops_k_and_robber_algo.py <graph_file.txt> <num_cops>")
-        print("Example: python cops_k_and_robber_algo.py graph3.txt 4")
+        print("Usage: python k_cops.py <graph_file.txt> <num_cops>")
+        print("Example: python k_cops.py graph3.txt 4")
         sys.exit(1)
         
     filename = sys.argv[1]
     try:
-        k_cops = int(sys.argv[2])
+        k = int(sys.argv[2])
     except ValueError:
         print("Error: Number of cops must be an integer.")
         sys.exit(1)
-
-    # Path handling
-    assets_folder = 'assets'
-    filepath = os.path.join(assets_folder, filename)
-    
-    # Auto-create assets folder if missing (for convenience)
-    if not os.path.exists(assets_folder):
-        os.makedirs(assets_folder)
-        print(f"Created '{assets_folder}' directory.")
         
     # Check for file existence
-    if not os.path.exists(filepath):
+    if not os.path.exists(filename):
         print(f"Error: File '{filename}' not found inside '{assets_folder}'.")
         print("Please create the file or check the name.")
         sys.exit(1)
         
     # Run Solver
-    solver = CopsAndRobbersSolver(filepath, k_cops)
+    solver = CopsAndRobbersSolver(filename, k)
     solver.solve()
