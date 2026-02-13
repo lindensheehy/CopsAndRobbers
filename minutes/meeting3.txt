@@ -1,0 +1,27 @@
+next steps:
+add amount of steps to win
+start translating 
+there are results online on different studies on how long it takes for cop to catch robber randomly moving, 
+
+"(d,g) - cages" graph is what might require 3 cops. 
+there is a theorem
+if G has girth >= 5 then c(G) >= minimum degree in G,
+Girth in graph is the length of the shortest cycle in the graph, so if the shortest 
+length of a cycle in the graph is 5, then the vertex that has the smallest degree (ex 4) then the cop number is at least 4. So (d,g) cage is a graph where all verticies have degree d (exactly d) and the girth is g. 
+so different variations of (d, g) cage is interesting so find like (d,5) cage has cop number at least d and it would be nice to find bigger cops.
+
+and add the bus and train edges to the Scotland yard graph but for now no need tokens. 
+
+also be sure to keep Scotland yard only with taxi, one with busses, one with busses and trains and taxi. - keep all versions.
+
+Also very very far future step is figure out invisible robber.
+
+something to think about (Not next step)
+cop chooses a starting position, and robber choses - first starting position you see, but only every second move you see the position of the robber. This is the version that is super important - because in Scotland yard you DO see the robber but they tell you every 4 rounds or so. Maybe the graph has to change - like you see all POSSIBLE places robber could have been in.
+
+We will have overleaf shared in a week or two and the references there can be used here publicly
+
+Next meeting: Friday 20th at 10am maybe Thursday afternoon. 
+
+
+
