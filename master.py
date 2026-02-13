@@ -19,7 +19,10 @@ TOOL_CONFIG = {
         ("Adjacency Matrix", "*.txt"),
         ("Positions (Optional)", "*.txt")
     ],
-    "generator.py": [],  # No args
+    "graph_builder.py": [
+        ("Adjacency Matrix (Optional)", "*.txt"),
+        ("Positions (Optional)", "*.txt")
+    ],
 
     # --- Verification & Visualization ---
     "verifier.py": [
