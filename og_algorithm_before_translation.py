@@ -23,7 +23,7 @@ class CopsAndRobbersSolver:
         self.nodes = []
         self.k = num_cops
         self.load_graph_matrix(filepath)
-        self.steps_to_win = {} # Maps state -> integer
+        
         # --- DATA STRUCTURES ---
         # State: represented as a tuple (cop_positions_tuple, robber_position)
         # cop_positions_tuple is SORTED to handle symmetry (e.g., (0,1) == (1,0))
@@ -117,7 +117,6 @@ class CopsAndRobbersSolver:
                 self.cop_turn_wins[state] = True
                 self.robber_turn_wins[state] = True
                 self.robber_safe_moves_count[state] = 0 # No moves needed, he's caught
-                self.steps_to_win[state] = 0  # <--- WE JUST ADD THIS LINE
                 initial_wins += 1
                 
         print(f"Initialized {initial_wins} winning states (Captures).")
@@ -201,53 +200,42 @@ class CopsAndRobbersSolver:
                     
                     if can_reach_winning_state:
                         self.cop_turn_wins[state] = True
-                        self.steps_to_win[state] = passes
                         changed = True
                         new_wins_this_pass += 1
 
             print(f"Pass {passes}: Found {new_wins_this_pass} new winning states.")
             
-    # --- STEP 3: FINAL CHECK (Game Verdict) ---
-        print("\n--- FINAL VERDICT ---")
+        # --- STEP 3: FINAL CHECK (Game Verdict) ---
+        # "Can the Cops choose a start such that ALL Robber starts are Wins?"
         
-        overall_best_cop_start = None
-        overall_min_worst_case_steps = float('inf')
+        print("\n--- FINAL VERDICT ---")
+        winning_start_config = None
         
         # Get all unique cop configurations
         unique_cop_configs = set(s[0] for s in self.states)
         
         for c_start in unique_cop_configs:
             is_universal_win = True
-            worst_case_steps_for_this_start = 0
             
             # Check against EVERY possible Robber start node
             for r_start in self.nodes:
                 state = (c_start, r_start)
-                
                 # We check LEFT ARRAY because Cops move first
                 if not self.cop_turn_wins[state]:
                     is_universal_win = False
                     break
-                
-                # The Robber wants to MAXIMIZE the number of steps it takes to get caught
-                steps = self.steps_to_win[state]
-                if steps > worst_case_steps_for_this_start:
-                    worst_case_steps_for_this_start = steps
             
-            # If the Cops win from this starting setup against ALL robber starts...
             if is_universal_win:
-                # ...The Cops want to pick the setup that MINIMIZES that worst-case time
-                if worst_case_steps_for_this_start < overall_min_worst_case_steps:
-                    overall_min_worst_case_steps = worst_case_steps_for_this_start
-                    overall_best_cop_start = c_start
+                winning_start_config = c_start
+                break
         
-        if overall_best_cop_start:
+        if winning_start_config:
             print(f"RESULT: WIN. {self.k} Cop(s) CAN win this graph.")
-            print(f"Optimal Cop Start Positions: {overall_best_cop_start}")
-            print(f"Estimated worst-case rounds to win: {overall_min_worst_case_steps}")
+            print(f"Optimal Cop Start Positions: {winning_start_config}")
         else:
             print(f"RESULT: LOSS. {self.k} Cop(s) CANNOT guarantee a win.")
             print("(The Robber has a strategy to survive indefinitely against any start).")
+
 
 # --- ENTRY POINT ---
 if __name__ == "__main__":

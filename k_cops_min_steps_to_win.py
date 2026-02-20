@@ -1,3 +1,8 @@
+
+
+
+
+
 ''' main premise: there are two columns (two arrays that are mutable) of states. First go as many cops as we are given in program
 and one of the parameters for the program will be cops. So first we take the graph, make it into a matrix (2d array) (again format is 
 that the matrix is a 2d array file with '-' end), then we make states based on how many cops we got; IMPORTANT note THOUGH! - IF THERE 
@@ -132,6 +137,10 @@ class CopsAndRobbersSolver:
             passes += 1
             new_wins_this_pass = 0
             
+
+            # 1. ADD THESE TWO LINES (The Buffers)
+            cop_wins_buffer = []
+            robber_wins_buffer = []
             # We iterate through all states that are NOT yet won
             for state in self.states:
                 cops_pos, r_pos = state
@@ -163,7 +172,7 @@ class CopsAndRobbersSolver:
                     self.robber_safe_moves_count[state] = safe_count
                     
                     if safe_count == 0:
-                        self.robber_turn_wins[state] = True
+                        robber_wins_buffer.append(state) # <--- ADD TO BUFFER
                         changed = True
                         new_wins_this_pass += 1
 
@@ -200,16 +209,23 @@ class CopsAndRobbersSolver:
                             break
                     
                     if can_reach_winning_state:
-                        self.cop_turn_wins[state] = True
+                        cop_wins_buffer.append(state) # <--- ADD TO BUFFER
                         self.steps_to_win[state] = passes
                         changed = True
                         new_wins_this_pass += 1
-
+            # 3. APPLY ALL BUFFERED WINS AT ONCE
+            for s in robber_wins_buffer:
+                self.robber_turn_wins[s] = True
+                
+            for s in cop_wins_buffer:
+                self.cop_turn_wins[s] = True
+                self.steps_to_win[s] = passes
+                
             print(f"Pass {passes}: Found {new_wins_this_pass} new winning states.")
             
-    # --- STEP 3: FINAL CHECK (Game Verdict) ---
+        # --- STEP 3: FINAL CHECK (Game Verdict) ---
         print("\n--- FINAL VERDICT ---")
-        
+
         overall_best_cop_start = None
         overall_min_worst_case_steps = float('inf')
         
@@ -223,7 +239,7 @@ class CopsAndRobbersSolver:
             # Check against EVERY possible Robber start node
             for r_start in self.nodes:
                 state = (c_start, r_start)
-                
+
                 # We check LEFT ARRAY because Cops move first
                 if not self.cop_turn_wins[state]:
                     is_universal_win = False
@@ -233,7 +249,7 @@ class CopsAndRobbersSolver:
                 steps = self.steps_to_win[state]
                 if steps > worst_case_steps_for_this_start:
                     worst_case_steps_for_this_start = steps
-            
+
             # If the Cops win from this starting setup against ALL robber starts...
             if is_universal_win:
                 # ...The Cops want to pick the setup that MINIMIZES that worst-case time
@@ -266,10 +282,12 @@ if __name__ == "__main__":
         
     # Check for file existence
     if not os.path.exists(filename):
-        print(f"Error: File '{filename}' not found inside '{assets_folder}'.")
+        # print(f"Error: File '{filename}' not found inside '{assets_folder}'.")
         print("Please create the file or check the name.")
         sys.exit(1)
         
     # Run Solver
     solver = CopsAndRobbersSolver(filename, k)
     solver.solve()
+
+#-----------------------------------------------------------------------------------------------------

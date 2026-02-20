@@ -74,8 +74,7 @@ class CopsAndRobbersSolver:
                     cop_moves = self.adj[c] 
                     
                     for c_next in cop_moves:
-                        # CRITICAL FIX: If Cop moves onto Robber, it's an instant win.
-                        # This covers the "One-Move Win" logic.
+                        # If Cop moves onto Robber, it's an instant win.
                         if c_next == r:
                             can_force_win = True
                             break

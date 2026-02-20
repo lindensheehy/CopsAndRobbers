@@ -1,6 +1,6 @@
 # Compiler and flags
 CXX = g++
-CXXFLAGS = -Wall -std=c++17 -Iinclude
+CXXFLAGS = -Wall -O3 -march=native -std=c++17 -Iinclude
 
 # Directories
 SRC_DIR = src
@@ -8,7 +8,7 @@ OBJ_DIR = obj
 TARGET  = main
 
 # Pick up .cpp in src/ and key subdirs
-SRCS := $(shell find $(SRC_DIR) -name '*.cpp')
+SRCS := $(wildcard $(SRC_DIR)/*.cpp)
 
 # Map e.g. src/disassembler/foo.cpp -> obj/disassembler/foo.o
 OBJS := $(patsubst $(SRC_DIR)/%.cpp,$(OBJ_DIR)/%.o,$(SRCS))
