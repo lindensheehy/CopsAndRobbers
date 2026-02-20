@@ -41,6 +41,10 @@ TOOL_CONFIG = {
     "k_cops.py": [
         ("Adjacency Matrix", "*.txt"),
         ("Number of Cops", "int") 
+    ],
+    "k_cops.exe": [
+        ("Adjacency Matrix", "*.txt"),
+        ("Number of Cops", "int") 
     ]
 }
 
@@ -87,7 +91,7 @@ class MasterApp:
         found_files = []
         for dirpath, _, filenames in os.walk(root_dir):
             for f in filenames:
-                if f.endswith('.py') and f != current_script:
+                if (f.endswith('.py') or f.endswith('.exe')) and f != current_script:
                     rel_path = os.path.relpath(os.path.join(dirpath, f), root_dir)
                     found_files.append(rel_path.replace("\\", "/"))
         
@@ -176,8 +180,11 @@ class MasterApp:
             if val:
                 args.append(val)
         
-        # Construct command
-        cmd = [sys.executable, tool_rel_path] + args
+        # Construct command: Check if it's an exe or a python script
+        if tool_rel_path.lower().endswith('.exe'):
+            cmd = [tool_rel_path] + args
+        else:
+            cmd = [sys.executable, tool_rel_path] + args
         
         print(f"Executing: {' '.join(cmd)}")
         
