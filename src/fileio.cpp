@@ -3,21 +3,24 @@
 #include <filesystem>
 #include <system_error>
 
-uint8_t* readFile(const char* fileName) {
+uint8_t* readFile(const char* fileName, std::uintmax_t* fileLengthOut) {
 
-    std::uintmax_t file_length;
-    bool file_length_found = getFileLength(fileName, &file_length);
-    if (file_length_found) return nullptr;
-    if (file_length == 0) return nullptr;
+    std::uintmax_t fileLength;
+    bool fileLengthFound = getFileLength(fileName, &fileLength);
+    if (fileLengthFound) return nullptr;
+    if (fileLength == 0) return nullptr;
+
+    if (fileLengthOut == nullptr) return nullptr;
+    *fileLengthOut = fileLength;
 
     std::FILE* file = std::fopen(fileName, "rb");
     if (!file) return nullptr;
 
-    uint8_t* buf = new uint8_t[file_length];
-    size_t n = std::fread(buf, 1, file_length, file);
+    uint8_t* buf = new uint8_t[fileLength];
+    size_t n = std::fread(buf, 1, fileLength, file);
     std::fclose(file);
 
-    if (n != file_length || n == 0) {
+    if (n != fileLength || n == 0) {
         delete[] buf;
         return nullptr;
     }
