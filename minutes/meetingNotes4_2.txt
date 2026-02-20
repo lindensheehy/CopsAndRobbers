@@ -1,0 +1,22 @@
+for next meeting.
+write references and info in overleaf,
+make sure algorithms give the same time on finding shortest path. 
+
+
+when there is one cop there should be generated a table - (see photos for info)
+basically it is actually two tables - cops turn, robbers turn, where on y axis is cop, or x axis is robber, - basically 2 dynamic programming tables.
+this is made to test there is no bug at the program 
+so the two tables are populated during algorithm. You need to write number of rounds and where to play. It will be a winning strategy for cop.
+
+for two cops it would tell you where to go instead of vizualizing. 
+
+if the algorithm is way too slow the new stopping point would be to stop when we found the group we stop 
+but again check reasoning if the first group we find is the best one
+
+keep translating maybe even for testing cuz its faster
+
+and again later we work on invisible robber.
+
+when is the next time we meet?
+
+Friday next week. 3pm. - might change. 
