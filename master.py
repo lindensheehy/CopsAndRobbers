@@ -3,6 +3,8 @@ from tkinter import filedialog, messagebox
 import os
 import subprocess
 import sys
+import time
+import threading
 
 # --- CONFIGURATION ---
 # Format: "filename.py": [("Label", "Type"), ...]
@@ -188,11 +190,23 @@ class MasterApp:
         
         print(f"Executing: {' '.join(cmd)}")
         
-        try:
-            # Run in new process
-            subprocess.Popen(cmd)
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to launch tool:\n{e}")
+        # Define a background task so the Tkinter GUI doesn't freeze
+        def execute_and_time():
+            start_time = time.time()
+            try:
+                # subprocess.run blocks and waits for the tool to finish
+                subprocess.run(cmd)
+                
+                # Calculate and print the elapsed time
+                elapsed = time.time() - start_time
+                print(f"--- {tool_rel_path} finished in {elapsed:.4f} seconds ---")
+                
+            except Exception as e:
+                # Tkinter is not thread-safe, so we push the error box back to the main thread
+                self.root.after(0, lambda: messagebox.showerror("Error", f"Failed to launch tool:\n{e}"))
+
+        # Fire off the thread
+        threading.Thread(target=execute_and_time, daemon=True).start()
 
 if __name__ == "__main__":
     root = tk.Tk()

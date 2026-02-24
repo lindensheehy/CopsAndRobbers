@@ -6,7 +6,7 @@ if not exist obj mkdir obj
 
 :: Compile all .cpp files in the src directory (and current directory if needed)
 :: Note: If you have subdirectories inside src/, we can adjust this, but for flat src/ this is fastest.
-g++ -Wall -std=c++17 -Iinclude src\*.cpp -o k_cops.exe
+g++ -Wall -std=c++17 -Iinclude -Ofast src\*.cpp -o k_cops.exe
 
 :: Check if compilation failed
 if %errorlevel% neq 0 (
@@ -14,5 +14,4 @@ if %errorlevel% neq 0 (
     exit /b %errorlevel%
 )
 
-echo Build successful. Running main.exe...
-echo.
+echo Build successful
