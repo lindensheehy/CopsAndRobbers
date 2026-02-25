@@ -13,7 +13,7 @@ OUT_DIR = Path("out")
 
 # Whitelist of files containing a main() function
 # (Just use the filenames, the script will find them)
-WHITELIST = ["k_cops.cpp", "k_cops_2.cpp", "k_cops_3.cpp", "k_cops_4.cpp"]
+WHITELIST = ["k_cops.cpp", "k_cops_2.cpp", "k_cops_3.cpp", "k_cops_4.cpp", "k_cops_5.cpp"]
 
 def main():
     # 1. Setup directories
