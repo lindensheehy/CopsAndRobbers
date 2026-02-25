@@ -161,7 +161,7 @@ class CopsAndRobbersSolver:
             # --- NEW: CACHE THE SOLUTION ---
             # Pass the original filename so it names the JSON properly
             json_file = self.export_game_to_json(game_history, self.filepath)
-            
+            self.export_dp_table(self.filepath)
             print("Launching interactive visualizer...")
             cmd = f'python replay_game.py "{self.filepath}" "{json_file}"'
             if self.pos_filepath:
@@ -264,6 +264,39 @@ class CopsAndRobbersSolver:
             json.dump(game_history, f, indent=4)
             
         print(f"Success! Perfect game cached to: {filepath}")
+        return filepath
+
+    def export_dp_table(self, graph_name="graph"):
+        """Exports the DP table as a highly compressed Numpy Binary (.npz) file."""
+        export_dir = "dp_tables"
+        if not os.path.exists(export_dir):
+            os.makedirs(export_dir)
+            
+        base_name = os.path.basename(graph_name).split('.')[0]
+        filename = f"{base_name}_{self.k}cops_dp_table.npz" # .npz extension!
+        filepath = os.path.join(export_dir, filename)
+        
+        print(f"Compressing {len(self.states)} states into binary DP table...")
+        
+        # Pack everything into a flat list of integers: [cop1, cop2, ..., robber, steps_to_win]
+        # Note: We don't need to save "cop_wins" because if steps_to_win == -1, the cop lost!
+        matrix_data = []
+        for state in self.states:
+            cops, robber = state
+            steps = self.steps_to_win.get(state, -1)
+            
+            # Combine the cop tuple, robber int, and steps int into one flat row
+            row = list(cops) + [robber, steps]
+            matrix_data.append(row)
+            
+        # Convert to a Numpy array using 16-bit integers to save massive RAM
+        # (int16 goes up to 32,767, which is plenty for node IDs and step counts)
+        np_matrix = np.array(matrix_data, dtype=np.int16)
+        
+        # Save it highly compressed
+        np.savez_compressed(filepath, dp_table=np_matrix)
+            
+        print(f"Success! Highly compressed DP Table saved to: {filepath}")
         return filepath
 
 if __name__ == "__main__":
