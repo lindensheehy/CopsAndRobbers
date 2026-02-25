@@ -32,6 +32,7 @@ def parse_positions(filepath):
 
 class CopsAndRobbersGame:
     def __init__(self, matrix_file, npz_file, pos_file=None):
+        self.rounds = 0
         self.adj_matrix = parse_matrix(matrix_file)
         self.num_nodes = len(self.adj_matrix)
         self.adj = {i: [] for i in range(self.num_nodes)}
@@ -128,9 +129,11 @@ class CopsAndRobbersGame:
     def on_click(self, event):
         if self.phase == "GAME_OVER" or event.xdata is None or event.ydata is None:
             return
-            
+        
         clicked_node = self.get_closest_node(event.xdata, event.ydata)
         if clicked_node is None: return
+
+        self.rounds += 1
 
         if self.phase == "PLACE_ROBBER":
             self.robber = clicked_node
@@ -192,4 +195,6 @@ if __name__ == "__main__":
     n_file = sys.argv[2]
     p_file = sys.argv[3] if len(sys.argv) > 3 else None
     
-    CopsAndRobbersGame(m_file, n_file, p_file)
+    game = CopsAndRobbersGame(m_file, n_file, p_file)
+
+    print(game.rounds)

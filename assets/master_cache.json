@@ -1,0 +1,12 @@
+{
+    "play_game_robber.py": {
+        "Adjacency Matrix": "assets\\matrices\\scotlandyard-yellow.txt",
+        "DP Table (.npz)": "assets\\dp_tables\\scotlandyard_2cops_dp_table.npz",
+        "Positions (Optional)": "assets\\positions\\scotlandyard.txt"
+    },
+    "replay_game.py": {
+        "Adjacency Matrix": "assets\\matrices\\scotlandyard-yellow.txt",
+        "Cached Game (.json)": "assets\\cached_solutions\\scotlandyard_2cops_perfect_game.json",
+        "Positions (Optional)": "assets\\positions\\scotlandyard.txt"
+    }
+}

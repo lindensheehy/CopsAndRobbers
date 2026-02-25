@@ -5,6 +5,7 @@ import subprocess
 import sys
 import time
 import threading
+import json
 
 # --- CONFIGURATION ---
 # Format: "filename.py": [("Label", "Type"), ...]
@@ -33,6 +34,16 @@ TOOL_CONFIG = {
     ],
     "visualizer.py": [
         ("Adjacency Matrix", "*.txt"),
+        ("Positions (Optional)", "*.txt") 
+    ],
+    "play_game_robber.py": [
+        ("Adjacency Matrix", "*.txt"),
+        ("DP Table (.npz)", "*.npz"),
+        ("Positions (Optional)", "*.txt") 
+    ],
+    "replay_game.py": [
+        ("Adjacency Matrix", "*.txt"),
+        ("Cached Game (.json)", "*.json"),
         ("Positions (Optional)", "*.txt") 
     ],
 
@@ -67,12 +78,16 @@ TOOL_CONFIG = {
 }
 
 DEFAULT_ASSET_DIR = "assets"
+CACHE_FILE = os.path.join(DEFAULT_ASSET_DIR, "master_cache.json")
 
 class MasterApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Cops & Robbers Tool Suite")
         self.root.geometry("650x750")
+        
+        # Load Cache
+        self.cache = self.load_cache()
 
         # --- Top Section: File List ---
         tk.Label(root, text="Select a Tool", font=("Arial", 12, "bold")).pack(pady=(10, 5))
@@ -99,6 +114,23 @@ class MasterApp:
 
         # Initial Scan
         self.scan_directory()
+
+    def load_cache(self):
+        """Loads the saved paths/arguments from the cache file."""
+        if os.path.exists(CACHE_FILE):
+            try:
+                with open(CACHE_FILE, "r") as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"Warning: Could not load cache ({e}). Starting fresh.")
+                return {}
+        return {}
+
+    def save_cache(self):
+        """Writes the current cache state to the cache file."""
+        os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
+        with open(CACHE_FILE, "w") as f:
+            json.dump(self.cache, f, indent=4)
 
     def scan_directory(self):
         """Scans for .py files recursively."""
@@ -137,6 +169,9 @@ class MasterApp:
                 tk.Label(self.arg_frame, text="No arguments required.", fg="gray").pack()
             
             for i, (label_text, arg_type) in enumerate(args_needed):
+                # Fetch previously saved value if it exists
+                cached_val = self.cache.get(tool_name, {}).get(label_text, "")
+
                 # Row Container
                 row = tk.Frame(self.arg_frame)
                 row.pack(fill=tk.X, pady=4)
@@ -147,25 +182,30 @@ class MasterApp:
                 if arg_type == "int":
                     # Number Input (Spinbox)
                     entry = tk.Spinbox(row, from_=1, to=10, width=5)
+                    if cached_val:
+                        entry.delete(0, "end")
+                        entry.insert(0, cached_val)
                     entry.pack(side=tk.LEFT, padx=5)
-                    self.arg_entries.append(entry)
+                    self.arg_entries.append((entry, label_text))
                     tk.Label(row, text="(Integer)", fg="gray", font=("Arial", 8)).pack(side=tk.LEFT)
                     
                 else:
                     # File Input
                     entry = tk.Entry(row)
+                    if cached_val:
+                        entry.insert(0, cached_val)
                     entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
-                    self.arg_entries.append(entry)
+                    self.arg_entries.append((entry, label_text))
                     
-                    # Browse Button
+                    # Browse Button - Passing tool_name and label_text to update cache
                     btn = tk.Button(row, text="Browse...", 
-                                    command=lambda e=entry, ft=arg_type: self.browse_file(e, ft))
+                                    command=lambda e=entry, ft=arg_type, tn=tool_name, lt=label_text: self.browse_file(e, ft, tn, lt))
                     btn.pack(side=tk.RIGHT)
         else:
             tk.Label(self.arg_frame, text="Unknown tool. Running without arguments.", fg="orange").pack()
 
-    def browse_file(self, entry_widget, file_pattern):
-        """Opens a file dialog and inserts result into the entry widget."""
+    def browse_file(self, entry_widget, file_pattern, tool_name, label_text):
+        """Opens a file dialog, inserts result into the entry widget, and caches it."""
         init_dir = DEFAULT_ASSET_DIR if os.path.exists(DEFAULT_ASSET_DIR) else "."
         
         filename = filedialog.askopenfilename(
@@ -177,11 +217,18 @@ class MasterApp:
         if filename:
             try:
                 rel_path = os.path.relpath(filename, ".")
-                entry_widget.delete(0, tk.END)
-                entry_widget.insert(0, rel_path)
+                final_path = rel_path
             except:
-                entry_widget.delete(0, tk.END)
-                entry_widget.insert(0, filename)
+                final_path = filename
+
+            entry_widget.delete(0, tk.END)
+            entry_widget.insert(0, final_path)
+
+            # Update the cache instantly on selection
+            if tool_name not in self.cache:
+                self.cache[tool_name] = {}
+            self.cache[tool_name][label_text] = final_path
+            self.save_cache()
 
     def run_tool(self):
         selection = self.tool_list.curselection()
@@ -190,13 +237,20 @@ class MasterApp:
             return
 
         tool_rel_path = self.tool_list.get(selection[0])
+        tool_name = os.path.basename(tool_rel_path)
         
-        # Collect arguments
+        # Collect arguments and save manual edits/spinboxes to cache
         args = []
-        for entry in self.arg_entries:
+        for entry, label in self.arg_entries:
             val = entry.get().strip()
             if val:
                 args.append(val)
+                # Ensure cache is updated even if user manually typed the path
+                if tool_name not in self.cache:
+                    self.cache[tool_name] = {}
+                self.cache[tool_name][label] = val
+        
+        self.save_cache()
         
         # Construct command: Check if it's an exe or a python script
         if tool_rel_path.lower().endswith('.exe'):
