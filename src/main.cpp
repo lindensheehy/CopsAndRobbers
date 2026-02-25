@@ -1,177 +1,338 @@
 #include "Graph.h"
+#include "AdjacencyList.h"
 #include <iostream>
 #include <vector>
 #include <algorithm>
-#include <string>
+#include <cstring>
+
+#include <cstdint>
 
 // --- PROCEDURAL HELPERS ---
 
-// Recursive helper to generate combinations with replacement
-void generateCopConfigs(int k, int N, int currentVal, std::vector<int>& currentConfig, std::vector<std::vector<int>>& outCopConfigs) {
-    if (currentConfig.size() == k) {
-        outCopConfigs.push_back(currentConfig);
-        return;
+// Generates all unique sorted cop configurations iteratively.
+// outNumConfigs is passed by reference so the caller knows exactly how many states exist.
+constexpr size_t MAX_COPS = 256;
+uint8_t* generateCopConfigs(uint32_t k, int N, size_t* outNumConfigs) {
+    
+    // Failsafe for stack array size
+    if (k > MAX_COPS) {
+        std::cerr << "FATAL: Number of cops (k) exceeds maximum supported limit of " << MAX_COPS << ".\n";
+        *outNumConfigs = 0;
+        return nullptr;
     }
-    for (int i = currentVal; i < N; ++i) {
-        currentConfig.push_back(i);
-        generateCopConfigs(k, N, i, currentConfig, outCopConfigs);
-        currentConfig.pop_back();
+
+    // 1. Calculate exact state space size (Combinations with replacement)
+    {
+        int n_val = N + k - 1;
+        int k_val = k;
+        
+        if (k_val > n_val) {
+            *outNumConfigs = 0;
+        } else if (k_val == 0 || k_val == n_val) {
+            *outNumConfigs = 1;
+        } else {
+            if (k_val > n_val / 2) k_val = n_val - k_val;
+            size_t res = 1;
+            for (int i = 1; i <= k_val; ++i) {
+                res = res * (n_val - i + 1) / i;
+            }
+            *outNumConfigs = res;
+        }
     }
+    
+    // 2. Print memory footprint
+    size_t totalBytes = (*outNumConfigs) * k;
+    std::cout << "Allocating " << totalBytes / (1024.0 * 1024.0) 
+              << " MB for " << *outNumConfigs << " cop configurations...\n";
+
+    // 3. Allocate exact flat array
+    uint8_t* configs = new uint8_t[totalBytes];
+    
+    // 4. Initialize the first configuration on the stack: [0, 0, ..., 0]
+    uint8_t current[MAX_COPS];
+    memset(current, 0, MAX_COPS);
+    
+    size_t offset = 0;
+    
+    // 5. Iteratively generate the next lexicographical combination
+    while(true) {
+        
+        // Write the current configuration directly to our flat array
+        memcpy(&(configs[offset]), current, k);
+        offset += k;
+        
+        // Find the rightmost element that can be incremented
+        int p = k - 1;
+        while(p >= 0 && current[p] == N - 1) {
+            p--;
+        }
+        
+        // If all elements are N-1, we are done
+        if (p < 0) break; 
+        
+        // Increment the found element
+        current[p]++;
+        
+        // Set all subsequent elements to match this new value (maintaining sorted order)
+        for(uint32_t i = p + 1; i < k; ++i) {
+            current[i] = current[p];
+        }
+
+    }
+    
+    return configs;
+
 }
 
-// Recursive helper to generate all possible moves for a team of cops
-void generateTeamMoves(int k, const std::vector<int>& config, int copIdx, std::vector<int>& currentMoves, size_t configId, 
-                       const std::vector<std::vector<int>>& adj, 
-                       const std::vector<std::vector<int>>& copConfigs, 
-                       std::vector<std::vector<size_t>>& outCopTransitions) {
-    
-    if (copIdx == k) {
-        std::vector<int> sortedMoves = currentMoves;
-        std::sort(sortedMoves.begin(), sortedMoves.end());
-        
-        // Find the ID of this resulting sorted configuration
-        auto it = std::lower_bound(copConfigs.begin(), copConfigs.end(), sortedMoves);
-        size_t nextId = std::distance(copConfigs.begin(), it);
-        
-        // Add to transitions if not already there
-        auto& trans = outCopTransitions[configId];
-        if (std::find(trans.begin(), trans.end(), nextId) == trans.end()) {
-            trans.push_back(nextId);
-        }
-        return;
+// Binary search to find the canonical ID of a sorted configuration in our flat uint8_t array
+size_t findConfigId(const uint8_t* target, const uint8_t* configs, size_t numConfigs, int k) {
+    size_t left = 0;
+    size_t right = numConfigs - 1;
+    while (left <= right) {
+        size_t mid = left + (right - left) / 2;
+        int cmp = std::memcmp(&configs[mid * k], target, k);
+        if (cmp == 0) return mid;
+        if (cmp < 0) left = mid + 1;
+        else right = mid - 1;
     }
-
-    int u = config[copIdx];
-    for (int v : adj[u]) {
-        currentMoves.push_back(v);
-        generateTeamMoves(k, config, copIdx + 1, currentMoves, configId, adj, copConfigs, outCopTransitions);
-        currentMoves.pop_back();
-    }
+    return -1; 
 }
 
 // --- MAIN ALGORITHM ---
-
 void solveCopsAndRobbers(Graph* g, int k) {
+
     int N = g->nodeCount;
     if (N == 0) {
         std::cerr << "Error: Graph is empty or failed to load.\n";
         return;
     }
 
-    // 1. Build fast adjacency list including self-loops
-    std::vector<std::vector<int>> adj(N);
-    for (int i = 0; i < N; ++i) {
-        for (int j = 0; j < N; ++j) {
-            if (g->getEdge(i, j) || i == j) { // i == j adds the self-loop
-                adj[i].push_back(j);
-            }
-        }
-    }
-    std::cout << "Graph loaded: " << N << " nodes.\n";
+    // STEP 1 --- Create an adjacency list out of the adjacency matrix for faster iteration in the main loop
+    AdjacencyList adj(g);
 
-    // 2. Generate all unique, sorted cop configurations
-    std::vector<std::vector<int>> copConfigs;
-    std::vector<int> tempConfig;
-    generateCopConfigs(k, N, 0, tempConfig, copConfigs);
-    
-    // 3. Pre-calculate all team transitions
-    std::vector<std::vector<size_t>> copTransitions(copConfigs.size());
-    for (size_t id = 0; id < copConfigs.size(); ++id) {
-        std::vector<int> tempMoves;
-        generateTeamMoves(k, copConfigs[id], 0, tempMoves, id, adj, copConfigs, copTransitions);
-    }
+    // STEP 2 --- Generate all unique, sorted cop configurations
+    size_t configCount;
+    uint8_t* configs = generateCopConfigs(k, N, &configCount);
 
-    // 4. Allocate flat arrays for game states
-    size_t numStates = copConfigs.size() * N;
-    bool* copTurnWins = new bool[numStates]{false};
-    bool* robberTurnWins = new bool[numStates]{false};
-    int* robberSafeMoves = new int[numStates]{0};
+    // STEP 3 --- Pre-calculate all team transitions (CSR Format)
+    std::vector<size_t> transitionHeads(configCount + 1, 0);
+    std::vector<size_t> transitions;
+    {
+        // Smart upfront allocation: guess an average branching factor to prevent reallocations.
+        // If it needs more, std::vector handles it seamlessly.
+        transitions.reserve(configCount * 8); 
 
-    std::cout << "Generating states for " << k << " cops...\n";
-    std::cout << "Total States: " << numStates << "\n";
+        std::vector<size_t> tempMoves;
+        tempMoves.reserve(1024); // Reused buffer for a single state's moves
 
-    // --- STEP 1: INITIALIZATION ---
-    int initialWins = 0;
-    for (size_t cId = 0; cId < copConfigs.size(); ++cId) {
-        for (int r = 0; r < N; ++r) {
-            size_t stateId = cId * N + r;
+        std::cout << "Building transition table for " << configCount << " configurations...\n";
+
+        uint8_t options[MAX_COPS][256];
+        int optionCount[MAX_COPS];
+        int odometer[MAX_COPS];
+        uint8_t moveConfig[MAX_COPS];
+
+        for (size_t cId = 0; cId < configCount; cId++) {
             
-            // Is robber caught?
-            bool caught = std::find(copConfigs[cId].begin(), copConfigs[cId].end(), r) != copConfigs[cId].end();
+            tempMoves.clear(); // Reset for this configuration
+            uint8_t* currentCops = &configs[cId * k];
             
-            if (caught) {
-                copTurnWins[stateId] = true;
-                robberTurnWins[stateId] = true;
-                robberSafeMoves[stateId] = 0;
-                initialWins++;
-            } else {
-                robberSafeMoves[stateId] = adj[r].size();
+            for (int i = 0; i < k; i++) {
+                uint8_t u = currentCops[i];
+                options[i][0] = u; // Stay in place
+                int count = 1;
+                
+                uint8_t* edges = adj.getEdges(u);
+                int eIdx = 0;
+                while (edges[eIdx] != 255) {
+                    options[i][count++] = edges[eIdx++];
+                }
+                optionCount[i] = count;
             }
+
+            memset(odometer, 0, MAX_COPS * sizeof(int));
+            
+            while (true) {
+                for (int i = 0; i < k; ++i) {
+                    moveConfig[i] = options[i][odometer[i]];
+                }
+                
+                // Sort and find canonical ID
+                std::sort(moveConfig, moveConfig + k);
+                size_t nextId = findConfigId(moveConfig, configs, configCount, k);
+                
+                tempMoves.push_back(nextId * N);
+                
+                // Increment odometer
+                int p = k - 1;
+                while (p >= 0) {
+                    odometer[p]++;
+                    if (odometer[p] < optionCount[p]) break;
+                    odometer[p] = 0;
+                    p--;
+                }
+                if (p < 0) break;
+            }
+
+            // C. Deduplicate and commit to global CSR vector
+            std::sort(tempMoves.begin(), tempMoves.end());
+            tempMoves.erase(std::unique(tempMoves.begin(), tempMoves.end()), tempMoves.end());
+            
+            transitions.insert(transitions.end(), tempMoves.begin(), tempMoves.end());
+            transitionHeads[cId + 1] = transitions.size();
         }
+
+        std::cout << "Transitions generated. Total edge pointers: " << transitions.size() << "\n";
     }
-    std::cout << "Initialized " << initialWins << " winning states (Captures).\n";
-    std::cout << "Starting Backward Induction Loop...\n";
 
-    // --- STEP 2: MAIN LOOP ---
-    bool changed = true;
-    int passes = 0;
+    // STEP 4 --- Allocate flat arrays for game states
+    size_t numStates = configCount * N;
+    uint8_t* stateMemoryPool = nullptr;
+    uint8_t* copTurnWins = nullptr;
+    uint8_t* robberTurnWins = nullptr;
+    {
+        // Calculate size (1 byte per boolean state)
+        size_t poolSize = numStates * 2;
 
-    while (changed) {
-        changed = false;
-        passes++;
-        int newWinsThisPass = 0;
+        std::cout << "Generating states for " << k << " cops...\n";
+        std::cout << "Total States: " << numStates << "\n";
+        std::cout << "Allocating State Memory Pool: " << poolSize / (1024.0 * 1024.0) << " MB\n";
 
-        for (size_t cId = 0; cId < copConfigs.size(); ++cId) {
+        // Single contiguous memory allocation
+        stateMemoryPool = new uint8_t[poolSize];
+        
+        // Zero out the entire block (false)
+        std::memset(stateMemoryPool, 0, poolSize);
+
+        // Section off the pointers
+        copTurnWins = stateMemoryPool;
+        robberTurnWins = stateMemoryPool + numStates;
+    }
+
+    // STEP 5 --- INITIALIZATION
+    {
+        int initialWins = 0;
+        uint8_t* currentCops;
+        size_t stateId;
+        bool caught;
+        
+        for (size_t cId = 0; cId < configCount; ++cId) {
+            currentCops = &configs[cId * k];
+            
             for (int r = 0; r < N; ++r) {
-                size_t stateId = cId * N + r;
-
-                if (copTurnWins[stateId] && robberTurnWins[stateId]) continue;
-
-                // RIGHT SIDE: Robber's Turn
-                if (!robberTurnWins[stateId]) {
-                    int safeCount = 0;
-                    for (int rNext : adj[r]) {
-                        size_t nextStateId = cId * N + rNext;
-                        if (!copTurnWins[nextStateId]) {
-                            safeCount++;
-                        }
-                    }
-                    robberSafeMoves[stateId] = safeCount;
-
-                    if (safeCount == 0) {
-                        robberTurnWins[stateId] = true;
-                        changed = true;
-                        newWinsThisPass++;
+                stateId = cId * N + r;
+                
+                caught = false;
+                for (int i = 0; i < k; ++i) {
+                    if (currentCops[i] == r) {
+                        caught = true;
+                        break;
                     }
                 }
-
-                // LEFT SIDE: Cop's Turn
-                if (!copTurnWins[stateId]) {
-                    bool canWin = false;
-                    for (size_t nextCId : copTransitions[cId]) {
-                        size_t nextStateId = nextCId * N + r;
-                        if (robberTurnWins[nextStateId]) {
-                            canWin = true;
-                            break;
-                        }
-                    }
-
-                    if (canWin) {
-                        copTurnWins[stateId] = true;
-                        changed = true;
-                        newWinsThisPass++;
-                    }
+                
+                if (caught) {
+                    copTurnWins[stateId] = 1;
+                    robberTurnWins[stateId] = 1;
+                    initialWins++;
                 }
             }
         }
-        std::cout << "Pass " << passes << ": Found " << newWinsThisPass << " new winning states.\n";
+
+        std::cout << "Initialized " << initialWins << " winning states (Captures).\n";
+        std::cout << "Starting Backward Induction Loop...\n";
     }
 
-    // --- STEP 3: FINAL VERDICT ---
+    // STEP 6 --- MAIN BACKWARD INDUCTION LOOP
+    {
+        int passes = 0;
+        int newWinsThisPass;
+        size_t copTransStart; size_t copTransEnd;
+        int r;
+        size_t cId;
+        size_t stateId;
+        size_t baseStateId; // Added to remove multiplication in the robber loop
+        bool canEscape;
+        uint8_t* rEdges;
+        int eIdx;
+        size_t nextStateId;
+        size_t i;
+
+        while (true) {
+            passes++;
+            newWinsThisPass = 0;
+
+            for (cId = 0; cId < configCount; ++cId) {
+                
+                copTransStart = transitionHeads[cId];
+                copTransEnd = transitionHeads[cId + 1];
+                stateId = cId * N;
+                baseStateId = stateId; // Cache the base ID (cId * N)
+                
+                // 1. Initialize pointer to the 0th node's edges outside the 'r' loop
+                rEdges = adj.getEdges(0); 
+
+                for (r = 0; r < N; ++r) {
+
+                    // --- RIGHT SIDE: Robber's Turn ---
+                    if (!robberTurnWins[stateId]) {
+                        canEscape = false;
+
+                        // 1. Can the robber safely stay in place?
+                        if (!copTurnWins[stateId]) {
+                            canEscape = true;
+                        } else {
+                            // 2. Can the robber move to a safe neighbor?
+                            for (eIdx = 0; rEdges[eIdx] != 255; eIdx++) {
+                                // 3. Replaced (cId * N) with our cached baseStateId
+                                nextStateId = baseStateId + rEdges[eIdx]; 
+                                if (!copTurnWins[nextStateId]) {
+                                    canEscape = true;
+                                    break; 
+                                }
+                            }
+                        }
+
+                        if (!canEscape) {
+                            robberTurnWins[stateId] = 1;
+                            newWinsThisPass++;
+                        }
+                    }
+
+                    // --- LEFT SIDE: Cop's Turn ---
+                    if (!copTurnWins[stateId]) {
+                        
+                        for (i = copTransStart; i < copTransEnd; ++i) {
+                            nextStateId = transitions[i] + r;
+                            
+                            if (robberTurnWins[nextStateId]) {
+                                copTurnWins[stateId] = 1;
+                                newWinsThisPass++;
+                                break; 
+                            }
+                        }
+
+                    }
+                
+                    stateId++;
+                    
+                    // 4. Advance the edge pointer by exactly one stride for the next 'r'
+                    rEdges += adj.maxDegree; 
+
+                }
+            }
+
+            std::cout << "Pass " << passes << ": Found " << newWinsThisPass << " new winning states.\n";
+
+            if (newWinsThisPass == 0) break;
+
+        }
+    }
+
+    // STEP 7 --- FINAL VERDICT ---
     std::cout << "\n--- FINAL VERDICT ---\n";
     int winningStartConfigId = -1;
 
-    for (size_t cId = 0; cId < copConfigs.size(); ++cId) {
+    for (size_t cId = 0; cId < configCount; ++cId) {
         bool universalWin = true;
         for (int rStart = 0; rStart < N; ++rStart) {
             size_t stateId = cId * N + rStart;
@@ -190,7 +351,7 @@ void solveCopsAndRobbers(Graph* g, int k) {
         std::cout << "RESULT: WIN. " << k << " Cop(s) CAN win this graph.\n";
         std::cout << "Optimal Cop Start Positions: (";
         for (int i = 0; i < k; ++i) {
-            std::cout << copConfigs[winningStartConfigId][i] << (i == k - 1 ? "" : ", ");
+            std::cout << (int)configs[winningStartConfigId * k + i] << (i == k - 1 ? "" : ", ");
         }
         std::cout << ")\n";
     } else {
@@ -199,9 +360,8 @@ void solveCopsAndRobbers(Graph* g, int k) {
     }
 
     // --- CLEANUP ---
-    delete[] copTurnWins;
-    delete[] robberTurnWins;
-    delete[] robberSafeMoves;
+    delete[] configs;
+    delete[] stateMemoryPool;
 }
 
 // --- ENTRY POINT ---
@@ -214,12 +374,10 @@ int main(int argc, char* argv[]) {
     }
 
     const char* filename = argv[1];
-    int k = std::stoi(argv[2]);
+    uint32_t k = std::stoi(argv[2]);
 
-    // Graph parsing using the procedural Graph constructor we finalized
     Graph g(filename);
     
-    // Pass it cleanly to the solver
     solveCopsAndRobbers(&g, k);
 
     return 0;
