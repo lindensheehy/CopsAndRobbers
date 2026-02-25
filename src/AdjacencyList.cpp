@@ -57,6 +57,10 @@ AdjacencyList::~AdjacencyList() {
     delete[] this->edges;
 }
 
+uint8_t* AdjacencyList::getEdges(int node) const {
+    return &(this->edges[node * maxDegree]);
+}
+
 void AdjacencyList::addEdge(uint8_t u, uint8_t v) {
 
     int offset = u * maxDegree;
@@ -71,8 +75,4 @@ void AdjacencyList::addEdge(uint8_t u, uint8_t v) {
 
     return;
 
-}
-
-uint8_t* AdjacencyList::getEdges(int node) {
-    return &(this->edges[node * maxDegree]);
 }

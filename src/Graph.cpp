@@ -82,7 +82,7 @@ Graph::~Graph() {
     delete[] this->g;
 }
 
-bool Graph::getEdge(int node1, int node2) {
+bool Graph::getEdge(int node1, int node2) const {
 
     if (!this->g) return false;
 

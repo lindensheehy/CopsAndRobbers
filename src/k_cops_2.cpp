@@ -84,18 +84,138 @@ uint8_t* generateCopConfigs(uint32_t k, int N, size_t* outNumConfigs) {
 
 }
 
-// Binary search to find the canonical ID of a sorted configuration in our flat uint8_t array
-size_t findConfigId(const uint8_t* target, const uint8_t* configs, size_t numConfigs, int k) {
-    size_t left = 0;
-    size_t right = numConfigs - 1;
-    while (left <= right) {
-        size_t mid = left + (right - left) / 2;
-        int cmp = std::memcmp(&configs[mid * k], target, k);
-        if (cmp == 0) return mid;
-        if (cmp < 0) left = mid + 1;
-        else right = mid - 1;
+// --- STEP 3: Build CSR Transitions ---
+void buildTransitions(size_t configCount, int k, int N, const uint8_t* configs, const AdjacencyList& adj,
+                      std::vector<size_t>& outTransitionHeads, std::vector<size_t>& outTransitions) {
+    
+    outTransitionHeads.assign(configCount + 1, 0);
+    outTransitions.clear();
+    outTransitions.reserve(configCount * 8); 
+
+    std::vector<size_t> tempMoves;
+    tempMoves.reserve(1024); 
+
+    std::cout << "Building transition table for " << configCount << " configurations...\n";
+
+    uint8_t options[MAX_COPS][256];
+    int optionCount[MAX_COPS];
+    int odometer[MAX_COPS];
+    uint8_t moveConfig[MAX_COPS];
+
+    for (size_t cId = 0; cId < configCount; cId++) {
+        tempMoves.clear(); 
+        const uint8_t* currentCops = &configs[cId * k];
+        
+        for (int i = 0; i < k; i++) {
+            uint8_t u = currentCops[i];
+            options[i][0] = u; 
+            int count = 1;
+            
+            uint8_t* edges = adj.getEdges(u);
+            int eIdx = 0;
+            while (edges[eIdx] != 255) {
+                options[i][count++] = edges[eIdx++];
+            }
+            optionCount[i] = count;
+        }
+
+        memset(odometer, 0, MAX_COPS * sizeof(int));
+        
+        while (true) {
+            for (int i = 0; i < k; ++i) {
+                moveConfig[i] = options[i][odometer[i]];
+            }
+            
+            std::sort(moveConfig, moveConfig + k);
+            size_t nextId = static_cast<size_t>(-1); 
+            size_t left = 0;
+            size_t right = configCount - 1;
+            while (left <= right) {
+                size_t mid = left + (right - left) / 2;
+                int cmp = std::memcmp(&configs[mid * k], moveConfig, k);
+                if (cmp == 0) {
+                    nextId = mid;
+                    break;
+                }
+                if (cmp < 0) {
+                    left = mid + 1;
+                } else {
+                    right = mid - 1;
+                }
+            }
+            
+            // Pre-multiplied by N for optimization
+            tempMoves.push_back(nextId * N);
+            
+            int p = k - 1;
+            while (p >= 0) {
+                odometer[p]++;
+                if (odometer[p] < optionCount[p]) break;
+                odometer[p] = 0;
+                p--;
+            }
+            if (p < 0) break;
+        }
+
+        std::sort(tempMoves.begin(), tempMoves.end());
+        tempMoves.erase(std::unique(tempMoves.begin(), tempMoves.end()), tempMoves.end());
+        
+        outTransitions.insert(outTransitions.end(), tempMoves.begin(), tempMoves.end());
+        outTransitionHeads[cId + 1] = outTransitions.size();
     }
-    return -1; 
+
+    std::cout << "Transitions generated. Total edge pointers: " << outTransitions.size() << "\n";
+}
+
+// --- STEP 4: Allocate Game States ---
+void allocateGameStates(size_t configCount, int k, int N, 
+                        uint8_t*& outStateMemoryPool, uint8_t*& outCopTurnWins, uint8_t*& outRobberTurnWins) {
+    size_t numStates = configCount * N;
+    size_t poolSize = numStates * 2;
+
+    std::cout << "Generating states for " << k << " cops...\n";
+    std::cout << "Total States: " << numStates << "\n";
+    std::cout << "Allocating State Memory Pool: " << poolSize / (1024.0 * 1024.0) << " MB\n";
+
+    outStateMemoryPool = new uint8_t[poolSize];
+    std::memset(outStateMemoryPool, 0, poolSize);
+
+    outCopTurnWins = outStateMemoryPool;
+    outRobberTurnWins = outStateMemoryPool + numStates;
+}
+
+// --- STEP 5: Initialize Captures ---
+void initializeCaptures(size_t configCount, int k, int N, const uint8_t* configs, 
+                        uint8_t* copTurnWins, uint8_t* robberTurnWins) {
+    int initialWins = 0;
+    const uint8_t* currentCops;
+    size_t stateId;
+    bool caught;
+    
+    for (size_t cId = 0; cId < configCount; ++cId) {
+        currentCops = &configs[cId * k];
+        
+        for (int r = 0; r < N; ++r) {
+            stateId = cId * N + r;
+            
+            caught = false;
+            for (int i = 0; i < k; ++i) {
+                if (currentCops[i] == r) {
+                    caught = true;
+                    break;
+                }
+            }
+            
+            if (caught) {
+                copTurnWins[stateId] = 1;
+                robberTurnWins[stateId] = 1;
+                initialWins++;
+            }
+        }
+    }
+
+    std::cout << "Initialized " << initialWins << " winning states (Captures).\n";
+    std::cout << "Starting Backward Induction Loop...\n";
 }
 
 // --- MAIN ALGORITHM ---
@@ -113,134 +233,21 @@ void solveCopsAndRobbers(Graph* g, int k) {
     // STEP 2 --- Generate all unique, sorted cop configurations
     size_t configCount;
     uint8_t* configs = generateCopConfigs(k, N, &configCount);
+    if (!configs || configCount == 0) return; // <-- Add this!
 
     // STEP 3 --- Pre-calculate all team transitions (CSR Format)
-    std::vector<size_t> transitionHeads(configCount + 1, 0);
+    std::vector<size_t> transitionHeads;
     std::vector<size_t> transitions;
-    {
-        // Smart upfront allocation: guess an average branching factor to prevent reallocations.
-        // If it needs more, std::vector handles it seamlessly.
-        transitions.reserve(configCount * 8); 
-
-        std::vector<size_t> tempMoves;
-        tempMoves.reserve(1024); // Reused buffer for a single state's moves
-
-        std::cout << "Building transition table for " << configCount << " configurations...\n";
-
-        uint8_t options[MAX_COPS][256];
-        int optionCount[MAX_COPS];
-        int odometer[MAX_COPS];
-        uint8_t moveConfig[MAX_COPS];
-
-        for (size_t cId = 0; cId < configCount; cId++) {
-            
-            tempMoves.clear(); // Reset for this configuration
-            uint8_t* currentCops = &configs[cId * k];
-            
-            for (int i = 0; i < k; i++) {
-                uint8_t u = currentCops[i];
-                options[i][0] = u; // Stay in place
-                int count = 1;
-                
-                uint8_t* edges = adj.getEdges(u);
-                int eIdx = 0;
-                while (edges[eIdx] != 255) {
-                    options[i][count++] = edges[eIdx++];
-                }
-                optionCount[i] = count;
-            }
-
-            memset(odometer, 0, MAX_COPS * sizeof(int));
-            
-            while (true) {
-                for (int i = 0; i < k; ++i) {
-                    moveConfig[i] = options[i][odometer[i]];
-                }
-                
-                // Sort and find canonical ID
-                std::sort(moveConfig, moveConfig + k);
-                size_t nextId = findConfigId(moveConfig, configs, configCount, k);
-                
-                tempMoves.push_back(nextId * N);
-                
-                // Increment odometer
-                int p = k - 1;
-                while (p >= 0) {
-                    odometer[p]++;
-                    if (odometer[p] < optionCount[p]) break;
-                    odometer[p] = 0;
-                    p--;
-                }
-                if (p < 0) break;
-            }
-
-            // C. Deduplicate and commit to global CSR vector
-            std::sort(tempMoves.begin(), tempMoves.end());
-            tempMoves.erase(std::unique(tempMoves.begin(), tempMoves.end()), tempMoves.end());
-            
-            transitions.insert(transitions.end(), tempMoves.begin(), tempMoves.end());
-            transitionHeads[cId + 1] = transitions.size();
-        }
-
-        std::cout << "Transitions generated. Total edge pointers: " << transitions.size() << "\n";
-    }
+    buildTransitions(configCount, k, N, configs, adj, transitionHeads, transitions);
 
     // STEP 4 --- Allocate flat arrays for game states
-    size_t numStates = configCount * N;
     uint8_t* stateMemoryPool = nullptr;
     uint8_t* copTurnWins = nullptr;
     uint8_t* robberTurnWins = nullptr;
-    {
-        // Calculate size (1 byte per boolean state)
-        size_t poolSize = numStates * 2;
-
-        std::cout << "Generating states for " << k << " cops...\n";
-        std::cout << "Total States: " << numStates << "\n";
-        std::cout << "Allocating State Memory Pool: " << poolSize / (1024.0 * 1024.0) << " MB\n";
-
-        // Single contiguous memory allocation
-        stateMemoryPool = new uint8_t[poolSize];
-        
-        // Zero out the entire block (false)
-        std::memset(stateMemoryPool, 0, poolSize);
-
-        // Section off the pointers
-        copTurnWins = stateMemoryPool;
-        robberTurnWins = stateMemoryPool + numStates;
-    }
+    allocateGameStates(configCount, k, N, stateMemoryPool, copTurnWins, robberTurnWins);
 
     // STEP 5 --- INITIALIZATION
-    {
-        int initialWins = 0;
-        uint8_t* currentCops;
-        size_t stateId;
-        bool caught;
-        
-        for (size_t cId = 0; cId < configCount; ++cId) {
-            currentCops = &configs[cId * k];
-            
-            for (int r = 0; r < N; ++r) {
-                stateId = cId * N + r;
-                
-                caught = false;
-                for (int i = 0; i < k; ++i) {
-                    if (currentCops[i] == r) {
-                        caught = true;
-                        break;
-                    }
-                }
-                
-                if (caught) {
-                    copTurnWins[stateId] = 1;
-                    robberTurnWins[stateId] = 1;
-                    initialWins++;
-                }
-            }
-        }
-
-        std::cout << "Initialized " << initialWins << " winning states (Captures).\n";
-        std::cout << "Starting Backward Induction Loop...\n";
-    }
+    initializeCaptures(configCount, k, N, configs, copTurnWins, robberTurnWins);
 
     // STEP 6 --- MAIN BACKWARD INDUCTION LOOP
     {
@@ -374,7 +381,7 @@ int main(int argc, char* argv[]) {
     }
 
     const char* filename = argv[1];
-    uint32_t k = std::stoi(argv[2]);
+    int k = std::stoi(argv[2]);
 
     Graph g(filename);
     

@@ -8,7 +8,7 @@
 
 // Recursive helper to generate combinations with replacement
 void generateCopConfigs(int k, int N, int currentVal, std::vector<int>& currentConfig, std::vector<std::vector<int>>& outCopConfigs) {
-    if (currentConfig.size() == k) {
+    if (currentConfig.size() == (size_t) k) {
         outCopConfigs.push_back(currentConfig);
         return;
     }

@@ -33,7 +33,7 @@ class AdjacencyList {
 
         // Returns a pointer to list of edges connected to node. This list will have length at most this->maxDegree. 
         // The value 255 serves as a terminator of the data (no more edges are connected), even if the index has not reached maxDegree-1
-        uint8_t* getEdges(int node);
+        uint8_t* getEdges(int node) const;
 
         // Adds the edge (u, v) to the internal array   
         void addEdge(uint8_t u, uint8_t v);

@@ -47,6 +47,18 @@ TOOL_CONFIG = {
     "k_cops.exe": [
         ("Adjacency Matrix", "*.txt"),
         ("Number of Cops", "int") 
+    ],
+    "k_cops_2.exe": [
+        ("Adjacency Matrix", "*.txt"),
+        ("Number of Cops", "int") 
+    ],
+    "k_cops_3.exe": [
+        ("Adjacency Matrix", "*.txt"),
+        ("Number of Cops", "int") 
+    ],
+    "k_cops_4.exe": [
+        ("Adjacency Matrix", "*.txt"),
+        ("Number of Cops", "int") 
     ]
 }
 
