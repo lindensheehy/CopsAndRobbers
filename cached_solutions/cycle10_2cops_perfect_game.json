@@ -1,0 +1,34 @@
+[
+    {
+        "cops": [
+            4,
+            9
+        ],
+        "robber": 1,
+        "turn": "Cop's Turn"
+    },
+    {
+        "cops": [
+            0,
+            3
+        ],
+        "robber": 1,
+        "turn": "Robber's Turn"
+    },
+    {
+        "cops": [
+            0,
+            3
+        ],
+        "robber": 2,
+        "turn": "Cop's Turn"
+    },
+    {
+        "cops": [
+            1,
+            2
+        ],
+        "robber": 2,
+        "turn": "Game Over - Captured!"
+    }
+]

@@ -1,0 +1,242 @@
+[
+    {
+        "cops": [
+            82,
+            112
+        ],
+        "robber": 4,
+        "turn": "Cop's Turn"
+    },
+    {
+        "cops": [
+            100,
+            113
+        ],
+        "robber": 4,
+        "turn": "Robber's Turn"
+    },
+    {
+        "cops": [
+            100,
+            113
+        ],
+        "robber": 14,
+        "turn": "Cop's Turn"
+    },
+    {
+        "cops": [
+            81,
+            114
+        ],
+        "robber": 14,
+        "turn": "Robber's Turn"
+    },
+    {
+        "cops": [
+            81,
+            114
+        ],
+        "robber": 13,
+        "turn": "Cop's Turn"
+    },
+    {
+        "cops": [
+            65,
+            126
+        ],
+        "robber": 13,
+        "turn": "Robber's Turn"
+    },
+    {
+        "cops": [
+            65,
+            126
+        ],
+        "robber": 24,
+        "turn": "Cop's Turn"
+    },
+    {
+        "cops": [
+            66,
+            115
+        ],
+        "robber": 24,
+        "turn": "Robber's Turn"
+    },
+    {
+        "cops": [
+            66,
+            115
+        ],
+        "robber": 37,
+        "turn": "Cop's Turn"
+    },
+    {
+        "cops": [
+            65,
+            103
+        ],
+        "robber": 37,
+        "turn": "Robber's Turn"
+    },
+    {
+        "cops": [
+            65,
+            103
+        ],
+        "robber": 23,
+        "turn": "Cop's Turn"
+    },
+    {
+        "cops": [
+            48,
+            85
+        ],
+        "robber": 23,
+        "turn": "Robber's Turn"
+    },
+    {
+        "cops": [
+            48,
+            85
+        ],
+        "robber": 37,
+        "turn": "Cop's Turn"
+    },
+    {
+        "cops": [
+            65,
+            68
+        ],
+        "robber": 37,
+        "turn": "Robber's Turn"
+    },
+    {
+        "cops": [
+            65,
+            68
+        ],
+        "robber": 50,
+        "turn": "Cop's Turn"
+    },
+    {
+        "cops": [
+            51,
+            66
+        ],
+        "robber": 50,
+        "turn": "Robber's Turn"
+    },
+    {
+        "cops": [
+            51,
+            66
+        ],
+        "robber": 37,
+        "turn": "Cop's Turn"
+    },
+    {
+        "cops": [
+            50,
+            65
+        ],
+        "robber": 37,
+        "turn": "Robber's Turn"
+    },
+    {
+        "cops": [
+            50,
+            65
+        ],
+        "robber": 23,
+        "turn": "Cop's Turn"
+    },
+    {
+        "cops": [
+            37,
+            48
+        ],
+        "robber": 23,
+        "turn": "Robber's Turn"
+    },
+    {
+        "cops": [
+            37,
+            48
+        ],
+        "robber": 12,
+        "turn": "Cop's Turn"
+    },
+    {
+        "cops": [
+            23,
+            35
+        ],
+        "robber": 12,
+        "turn": "Robber's Turn"
+    },
+    {
+        "cops": [
+            23,
+            35
+        ],
+        "robber": 3,
+        "turn": "Cop's Turn"
+    },
+    {
+        "cops": [
+            12,
+            34
+        ],
+        "robber": 3,
+        "turn": "Robber's Turn"
+    },
+    {
+        "cops": [
+            12,
+            34
+        ],
+        "robber": 2,
+        "turn": "Cop's Turn"
+    },
+    {
+        "cops": [
+            3,
+            21
+        ],
+        "robber": 2,
+        "turn": "Robber's Turn"
+    },
+    {
+        "cops": [
+            3,
+            21
+        ],
+        "robber": 11,
+        "turn": "Cop's Turn"
+    },
+    {
+        "cops": [
+            2,
+            22
+        ],
+        "robber": 11,
+        "turn": "Robber's Turn"
+    },
+    {
+        "cops": [
+            2,
+            22
+        ],
+        "robber": 11,
+        "turn": "Cop's Turn"
+    },
+    {
+        "cops": [
+            3,
+            11
+        ],
+        "robber": 11,
+        "turn": "Game Over - Captured!"
+    }
+]

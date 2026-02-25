@@ -1,102 +1,54 @@
-''' main premise: there are two columns (two arrays that are mutable) of states. First go as many cops as we are given in program
-and one of the parameters for the program will be cops. So first we take the graph, make it into a matrix (2d array) (again format is 
-that the matrix is a 2d array file with '-' end), then we make states based on how many cops we got; IMPORTANT note THOUGH! - IF THERE 
-IS COPS POSITIONS LIKE: cops: (a,b,c) robber: (a) and there is cops: (b,a,c) robber: (a) it is THE SAME THING because cops are 
-interchangable (for now at least). So we can either lexicographicallly sort positions, but with numbers of nodes I guess.  Now we go itterrate 
-and mark the states where one of the cops is the same state as the robber as winning. NOW the problem is - we need to make sure the on right side (robbers turn)
-the right side gets marked if all the reachable states ARE marked as winning on the left side, meanwhile on left side to be marked as winning - you just need one state 
-on the right to be marked as winning. I am not too sure if algorithmically it will work out automatically WITHOUT checking all the states on the right side, but if it does not -
-then right side array (robbers turn) should be not the same memory as the states on the left side - since they will be marked for different reasons. The reason why 
-the array on the right needs all the states on the left - is because for a state to be winning on robbers turn he can NOT go ANYWHERE because all the states he could go are winning
-for cops, so it becomes a winning state. We built all the states, we marked all the winning states where one of the cops is on top of the robber, and also same we do for right side
-since the game is practically over. Then the game is won '''
 import os
 import sys
 import itertools
-
-# Citation: The algorithm logic follows the "backward induction" method
-# [cite_start]described in Berarducci & Intrigila (1993)[cite: 101, 103, 118].
+import numpy as np
+import json #for export
 
 class CopsAndRobbersSolver:
-    def __init__(self, filepath, num_cops):
+    def __init__(self, filepath, num_cops, pos_filepath=None): # <-- Added argument
         self.adj = {}
         self.nodes = []
         self.k = num_cops
         self.load_graph_matrix(filepath)
-        self.steps_to_win = {} # Maps state -> integer
-        # --- DATA STRUCTURES ---
-        # State: represented as a tuple (cop_positions_tuple, robber_position)
-        # cop_positions_tuple is SORTED to handle symmetry (e.g., (0,1) == (1,0))
+        self.steps_to_win = {} 
         self.states = [] 
-        
-        # The Two Mutable Arrays (Dictionaries for easy Python lookup)
-        # Left Side: Is this state a WIN for Cop when it is COP'S TURN?
         self.cop_turn_wins = {} 
-        
-        # Right Side: Is this state a WIN for Cop when it is ROBBER'S TURN?
         self.robber_turn_wins = {}
-        
-        # Optimization: Tracks how many "safe" moves the robber has left from this state.
-        # When this hits 0, the state becomes a WIN for the Cop (Robber is trapped).
         self.robber_safe_moves_count = {} 
+        self.filepath = filepath 
+        self.pos_filepath = pos_filepath
 
     def load_graph_matrix(self, filepath):
-        """
-        Parses adjacency matrix ending with a '-'.
-        """
         try:
             with open(filepath, 'r') as f:
                 lines = [line.strip() for line in f.readlines()]
-            
-            matrix_rows = []
-            for line in lines:
-                if line == '-': break
-                if line: matrix_rows.append(line)
-            
+            matrix_rows = [line for line in lines if line and line != '-']
             num_nodes = len(matrix_rows)
             self.nodes = list(range(num_nodes))
-            
             for i in self.nodes:
                 self.adj[i] = []
-
             for r, row_str in enumerate(matrix_rows):
                 for c, char in enumerate(row_str):
                     if char == '1':
                         self.adj[r].append(c)
-            
-            # IMPLICIT RULE: Players can choose to stay put (pass turn).
-            # [cite_start]We add self-loops to represent this. [cite: 42, 79]
+            # Self-loops allow players to "stay put" [cite: 45]
             for i in self.nodes:
                 if i not in self.adj[i]:
                     self.adj[i].append(i)
-
             print(f"Graph loaded: {num_nodes} nodes.")
-            
         except FileNotFoundError:
-            print(f"Error: File {filepath} not found.")
-            sys.exit(1)
+            print(f"Error: File {filepath} not found."); sys.exit(1)
 
     def generate_all_states(self):
-        """
-        Generates all possible configurations.
-        Uses combinations_with_replacement because multiple cops can be on the same node.
-        [cite_start][cite: 80] "it is allowed that two or more cops are on the same vertex"
-        """
-        # Generate all sorted tuples of k cops positions
-        # e.g., for 2 cops on 3 nodes: (0,0), (0,1), (0,2), (1,1), (1,2), (2,2)
+        # Lexicographical sorting handles interchangeable cops
         cop_configs = list(itertools.combinations_with_replacement(self.nodes, self.k))
-        
         for cops in cop_configs:
             for r in self.nodes:
                 state = (cops, r)
                 self.states.append(state)
-                
-                # Initialize arrays
                 self.cop_turn_wins[state] = False
                 self.robber_turn_wins[state] = False
-                
-                # Initialize optimization counter
-                # The robber initially has 'degree' safe moves (number of neighbors)
+                # Robber starts with N safe moves (neighbors)
                 self.robber_safe_moves_count[state] = len(self.adj[r])
 
     def solve(self):
@@ -104,172 +56,224 @@ class CopsAndRobbersSolver:
         self.generate_all_states()
         print(f"Total States: {len(self.states)}")
         
-        # --- STEP 1: INITIALIZATION (Base Case W0) ---
-        # [cite_start]Mark all states where a cop is ALREADY catching the robber [cite: 118]
-        # We must mark BOTH arrays because physically the game is over.
-        
+        # --- STEP 1: INITIALIZATION (Capture at Round 0) ---
         initial_wins = 0
         for state in self.states:
             cops_pos, r_pos = state
-            
-            # If robber is on the same node as ANY cop
             if r_pos in cops_pos:
                 self.cop_turn_wins[state] = True
                 self.robber_turn_wins[state] = True
-                self.robber_safe_moves_count[state] = 0 # No moves needed, he's caught
-                self.steps_to_win[state] = 0  # <--- WE JUST ADD THIS LINE
+                self.robber_safe_moves_count[state] = 0
+                self.steps_to_win[state] = 0 
                 initial_wins += 1
-                
         print(f"Initialized {initial_wins} winning states (Captures).")
-        print("Starting Backward Induction Loop...")
 
-        # --- STEP 2: MAIN LOOP (The "Fixed Point" Iteration) ---
+        # --- STEP 2: SYNCHRONOUS INDUCTION LOOP ---
         changed = True
         passes = 0
-        
         while changed:
             changed = False
             passes += 1
-            new_wins_this_pass = 0
             
-            # We iterate through all states that are NOT yet won
+            # Temporary buffers to prevent the "Domino Effect"
+            cop_wins_to_apply = []
+            robber_wins_to_apply = []
+
             for state in self.states:
                 cops_pos, r_pos = state
                 
-                # If already solved, skip
+                # Skip already locked win states
                 if self.cop_turn_wins[state] and self.robber_turn_wins[state]:
                     continue
                 
-                # --- UPDATE RIGHT SIDE (ROBBER'S TURN) ---
-                # Logic: Robber is trapped if ALL his moves lead to a state 
-                # [cite_start]where CopTurnWins is TRUE. [cite: 126]
+                # --- UPDATE ROBBER SIDE (Right Column) ---
                 if not self.robber_turn_wins[state]:
-                    
-                    # Optimization: Instead of checking all neighbors every time,
-                    # we recount safe moves based on the updated Left Array.
-                    
-                    current_safe_moves = self.robber_safe_moves_count[state]
-                    
-                    # Check Robber's neighbors to see if any NEW ones became unsafe
-                    # Note: In a highly optimized C++ version, we would decrease this count
-                    # immediately when the neighbor flips to True. Here we re-scan for clarity.
+                    # Recalculate safe moves based ONLY on previous pass wins
                     safe_count = 0
                     for r_next in self.adj[r_pos]:
                         next_state = (cops_pos, r_next)
-                        # If the destination is NOT a win for Cop, it's safe for Robber
                         if not self.cop_turn_wins[next_state]:
                             safe_count += 1
                     
                     self.robber_safe_moves_count[state] = safe_count
-                    
                     if safe_count == 0:
-                        self.robber_turn_wins[state] = True
-                        changed = True
-                        new_wins_this_pass += 1
+                        robber_wins_to_apply.append(state)
 
-
-                # --- UPDATE LEFT SIDE (COP'S TURN) ---
-                # Logic: Cop wins if there EXISTS a move to a state 
-                # [cite_start]where RobberTurnWins is TRUE. [cite: 124]
+                # --- UPDATE COP SIDE (Left Column) ---
                 if not self.cop_turn_wins[state]:
-                    
-                    can_reach_winning_state = False
-                    
-                    # We need to check all possible moves for ALL k cops.
-                    # This is complex: we generate all successor configurations.
-                    # e.g., if Cops=(0, 5), Cop 1 can move or Cop 2 can move.
-                    
-                    # Get all possible next positions for the cop team
-                    # itertools.product generates all combos of moves for the team
-                    # (This handles the rule "subset of cops move" implicitly by allowing 'stay')
-                    possible_moves_lists = [self.adj[c] for c in cops_pos]
-                    
-                    # IMPORTANT: For k > 1, this loop can be large.
-                    # Ideally, Cops move one at a time or subset? 
-                    # Paper says "choosing a subset... and moving each".
-                    # For simplicity/standard play, we assume the team transitions to any 
-                    # combination of neighbor nodes.
-                    for next_cops_unsorted in itertools.product(*possible_moves_lists):
-                        # Sort to match our state key format
-                        next_cops = tuple(sorted(next_cops_unsorted))
-                        next_state = (next_cops, r_pos)
-                        
-                        # Check the Right Array (Robber's Turn)
-                        if self.robber_turn_wins.get(next_state, False):
-                            can_reach_winning_state = True
+                    can_reach_win = False
+                    possible_moves = [self.adj[c] for c in cops_pos]
+                    for next_c_unsorted in itertools.product(*possible_moves):
+                        next_c = tuple(sorted(next_c_unsorted))
+                        if self.robber_turn_wins.get((next_c, r_pos), False):
+                            can_reach_win = True
                             break
                     
-                    if can_reach_winning_state:
-                        self.cop_turn_wins[state] = True
-                        self.steps_to_win[state] = passes
-                        changed = True
-                        new_wins_this_pass += 1
+                    if can_reach_win:
+                        cop_wins_to_apply.append(state)
 
-            print(f"Pass {passes}: Found {new_wins_this_pass} new winning states.")
+            # --- STEP 3: CONVERSIVE UPDATE ---
+            # Now we commit the buffers to the main dictionaries simultaneously
+            for s in robber_wins_to_apply:
+                if not self.robber_turn_wins[s]:
+                    self.robber_turn_wins[s] = True
+                    changed = True
             
-    # --- STEP 3: FINAL CHECK (Game Verdict) ---
+            new_wins_this_pass = 0
+            for s in cop_wins_to_apply:
+                if not self.cop_turn_wins[s]:
+                    self.cop_turn_wins[s] = True
+                    # Round logic: 2 passes = 1 game round
+                    self.steps_to_win[s] = (passes + 1) // 2
+                    changed = True
+                    new_wins_this_pass += 1
+
+            if new_wins_this_pass > 0:
+                print(f"Pass {passes} (Round {(passes+1)//2}): Found {new_wins_this_pass} new states.")
+
+        # --- STEP 4: FINAL VERDICT ---
         print("\n--- FINAL VERDICT ---")
-        
         overall_best_cop_start = None
-        overall_min_worst_case_steps = float('inf')
-        
-        # Get all unique cop configurations
+        overall_min_worst_case = float('inf')
         unique_cop_configs = set(s[0] for s in self.states)
         
         for c_start in unique_cop_configs:
             is_universal_win = True
-            worst_case_steps_for_this_start = 0
-            
-            # Check against EVERY possible Robber start node
+            worst_case_steps = 0
             for r_start in self.nodes:
                 state = (c_start, r_start)
-                
-                # We check LEFT ARRAY because Cops move first
                 if not self.cop_turn_wins[state]:
-                    is_universal_win = False
-                    break
-                
-                # The Robber wants to MAXIMIZE the number of steps it takes to get caught
-                steps = self.steps_to_win[state]
-                if steps > worst_case_steps_for_this_start:
-                    worst_case_steps_for_this_start = steps
+                    is_universal_win = False; break
+                if self.steps_to_win[state] > worst_case_steps:
+                    worst_case_steps = self.steps_to_win[state]
             
-            # If the Cops win from this starting setup against ALL robber starts...
-            if is_universal_win:
-                # ...The Cops want to pick the setup that MINIMIZES that worst-case time
-                if worst_case_steps_for_this_start < overall_min_worst_case_steps:
-                    overall_min_worst_case_steps = worst_case_steps_for_this_start
-                    overall_best_cop_start = c_start
+            if is_universal_win and worst_case_steps < overall_min_worst_case:
+                overall_min_worst_case = worst_case_steps
+                overall_best_cop_start = c_start
         
         if overall_best_cop_start:
-            print(f"RESULT: WIN. {self.k} Cop(s) CAN win this graph.")
-            print(f"Optimal Cop Start Positions: {overall_best_cop_start}")
-            print(f"Estimated worst-case rounds to win: {overall_min_worst_case_steps}")
+            print(f"RESULT: WIN. Best Cop Position: {overall_best_cop_start}")
+            print(f"Capture Time: {overall_min_worst_case} rounds.")
+            
+            print("Extracting perfect game path...")
+            game_history = self.extract_perfect_game(overall_best_cop_start)
+            
+            # --- NEW: CACHE THE SOLUTION ---
+            # Pass the original filename so it names the JSON properly
+            json_file = self.export_game_to_json(game_history, self.filepath)
+            
+            print("Launching interactive visualizer...")
+            cmd = f'python replay_game.py "{self.filepath}" "{json_file}"'
+            if self.pos_filepath:
+                cmd += f' "{self.pos_filepath}"'
+            os.system(cmd)
+            
         else:
-            print(f"RESULT: LOSS. {self.k} Cop(s) CANNOT guarantee a win.")
-            print("(The Robber has a strategy to survive indefinitely against any start).")
+            print("RESULT: LOSS. Robber can evade forever.")
 
-# --- ENTRY POINT ---
+    def extract_perfect_game(self, best_c_start):
+        """Walks the DP table to extract the Minimax perfect game."""
+        best_r_start = None
+        max_steps = -1
+        for r in self.nodes:
+            state = (best_c_start, r)
+            if self.cop_turn_wins.get(state, False):
+                if self.steps_to_win[state] > max_steps:
+                    max_steps = self.steps_to_win[state]
+                    best_r_start = r
+                    
+        path = []
+        curr_cops = best_c_start
+        curr_robber = best_r_start
+        
+        loop_count = 0
+        hard_limit = len(self.nodes) * 5
+
+        while curr_robber not in curr_cops:
+            loop_count += 1
+            if loop_count > hard_limit:
+                print("Extraction hit cycle limit. Breaking to prevent infinite loop.")
+                break
+
+            # --- COP TURN (Minimize the Maximum Robber Response) ---
+            path.append({'cops': curr_cops, 'robber': curr_robber, 'turn': "Cop's Turn"})
+            best_next_cops = curr_cops
+            min_worst_case_steps = float('inf')
+            
+            possible_moves = [self.adj[c] for c in curr_cops]
+            for next_c_unsorted in itertools.product(*possible_moves):
+                next_c = tuple(sorted(next_c_unsorted))
+                
+                worst_case_robber_response = -1
+                is_valid_cop_move = True
+                
+                if curr_robber in next_c:
+                    worst_case_robber_response = 0 # Instant catch!
+                else:
+                    for r_next in self.adj[curr_robber]:
+                        next_state = (next_c, r_next)
+                        if not self.cop_turn_wins.get(next_state, False):
+                            is_valid_cop_move = False 
+                            break 
+                            
+                        steps = self.steps_to_win.get(next_state, float('inf'))
+                        if steps > worst_case_robber_response:
+                            worst_case_robber_response = steps
+                
+                if is_valid_cop_move and worst_case_robber_response < min_worst_case_steps:
+                    min_worst_case_steps = worst_case_robber_response
+                    best_next_cops = next_c
+                        
+            curr_cops = best_next_cops
+            
+            if curr_robber in curr_cops:
+                path.append({'cops': curr_cops, 'robber': curr_robber, 'turn': "Game Over - Captured!"})
+                break
+                
+            # --- ROBBER TURN (Maximize Steps) ---
+            path.append({'cops': curr_cops, 'robber': curr_robber, 'turn': "Robber's Turn"})
+            best_next_robber = curr_robber
+            max_steps_r = -1
+            
+            for r_next in self.adj[curr_robber]:
+                next_state = (curr_cops, r_next)
+                if self.cop_turn_wins.get(next_state, False):
+                    steps = self.steps_to_win.get(next_state, -1)
+                    if steps > max_steps_r:
+                        max_steps_r = steps
+                        best_next_robber = r_next
+                        
+            curr_robber = best_next_robber
+            
+        return path
+
+    def export_game_to_json(self, game_history, graph_name="graph"):
+        """Saves the perfect game sequence to a JSON file for instant replay."""
+        # Create the cache directory if it doesn't exist
+        cache_dir = "cached_solutions"
+        if not os.path.exists(cache_dir):
+            os.makedirs(cache_dir)
+            
+        # Format the filename: e.g., line10_2cops_perfect_game.json
+        base_name = os.path.basename(graph_name).split('.')[0]
+        filename = f"{base_name}_{self.k}cops_perfect_game.json"
+        filepath = os.path.join(cache_dir, filename)
+        
+        # Save the data
+        with open(filepath, 'w') as f:
+            json.dump(game_history, f, indent=4)
+            
+        print(f"Success! Perfect game cached to: {filepath}")
+        return filepath
+
 if __name__ == "__main__":
-    # Check arguments: python script.py <filename> <num_cops>
-    if len(sys.argv) != 3:
-        print("Usage: python k_cops.py <graph_file.txt> <num_cops>")
-        print("Example: python k_cops.py graph3.txt 4")
+    if len(sys.argv) < 3:
+        print("Usage: python k_cops.py <matrix_file> <num_cops> [positions_file]")
         sys.exit(1)
         
-    filename = sys.argv[1]
-    try:
-        k = int(sys.argv[2])
-    except ValueError:
-        print("Error: Number of cops must be an integer.")
-        sys.exit(1)
-        
-    # Check for file existence
-    if not os.path.exists(filename):
-        print(f"Error: File '{filename}' not found inside '{assets_folder}'.")
-        print("Please create the file or check the name.")
-        sys.exit(1)
-        
-    # Run Solver
-    solver = CopsAndRobbersSolver(filename, k)
+    matrix_file = sys.argv[1]
+    num_cops = int(sys.argv[2])
+    pos_file = sys.argv[3] if len(sys.argv) > 3 else None
+    
+    solver = CopsAndRobbersSolver(matrix_file, num_cops, pos_filepath=pos_file)
     solver.solve()
