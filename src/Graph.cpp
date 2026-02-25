@@ -24,7 +24,7 @@ Graph::Graph(const char* fileName) {
     if (!buf) return;
 
     // 1. Determine nodeCount by scanning until the first newline or '-'
-    int cols = 0;
+    uint32_t cols = 0;
     while (cols < fileLength && buf[cols] != '\n' && buf[cols] != '\r' && buf[cols] != '-') {
         cols++;
     }
@@ -82,7 +82,7 @@ Graph::~Graph() {
     delete[] this->g;
 }
 
-bool Graph::getEdge(int node1, int node2) {
+bool Graph::getEdge(int node1, int node2) const {
 
     if (!this->g) return false;
 

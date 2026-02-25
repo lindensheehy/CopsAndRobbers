@@ -26,7 +26,7 @@ class Graph {
         /*   Instance Functions   */
 
         // Returns true if an edge exists between the two passed nodes
-        bool getEdge(int node1, int node2);
+        bool getEdge(int node1, int node2) const;
 
     private:
 
