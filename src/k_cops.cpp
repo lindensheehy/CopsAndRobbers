@@ -1,12 +1,48 @@
+/**
+ * ============================================================================
+ * FILE --- k_cops.cpp
+ * ============================================================================
+ * 
+ * OVERVIEW
+ * Solves the Cops and Robbers graph game to determine if 'k' cops can guarantee 
+ * a capture on a given graph. It does this using (A) combinatorial state generation 
+ * for cop configurations, (B) pre-computed team transitions, and (C) a naive, 
+ * unoptimized iterative backward induction loop.
+ * 
+ * DEEPER DIVE
+ * - State Representation: The game state is flattened into a 1D ID calculated as 
+ * `stateId = cId * N + r`, where `cId` is the index of the sorted cop configuration 
+ * and `r` is the robber's node.
+ * - Algorithm: It starts by flagging all states where the robber is caught 
+ * (cop and robber share a node) as a win for the cops. It then iterates backward:
+ * 1. Robber Turn: The robber loses if ALL reachable adjacent nodes lead to a 
+ * state where the cops win.
+ * 2. Cop Turn: The cops win if ANY valid team move leads to a state where 
+ * the robber is forced to lose.
+ * - Note: This is a baseline, brute-force implementation. It holds onto large, 
+ * flat arrays and recalculates conditions until a fixed point (no changes) 
+ * is reached.
+ * 
+ * PERFORMANCE METRICS (on scotlandyard-yellow with 3 cops)
+ * - Memory -> 2.81 GB 
+ * - Time -> 200 seconds
+ * ============================================================================
+ */
+
 #include "Graph.h"
 #include <iostream>
 #include <vector>
 #include <algorithm>
 #include <string>
+#include <iomanip>
+
+// --- MEMORY TRACKING HELPER ---
+double bytesToMB(size_t bytes) {
+    return static_cast<double>(bytes) / (1024.0 * 1024.0);
+}
 
 // --- PROCEDURAL HELPERS ---
 
-// Recursive helper to generate combinations with replacement
 void generateCopConfigs(int k, int N, int currentVal, std::vector<int>& currentConfig, std::vector<std::vector<int>>& outCopConfigs) {
     if (currentConfig.size() == (size_t) k) {
         outCopConfigs.push_back(currentConfig);
@@ -19,7 +55,6 @@ void generateCopConfigs(int k, int N, int currentVal, std::vector<int>& currentC
     }
 }
 
-// Recursive helper to generate all possible moves for a team of cops
 void generateTeamMoves(int k, const std::vector<int>& config, int copIdx, std::vector<int>& currentMoves, size_t configId, 
                        const std::vector<std::vector<int>>& adj, 
                        const std::vector<std::vector<int>>& copConfigs, 
@@ -29,11 +64,9 @@ void generateTeamMoves(int k, const std::vector<int>& config, int copIdx, std::v
         std::vector<int> sortedMoves = currentMoves;
         std::sort(sortedMoves.begin(), sortedMoves.end());
         
-        // Find the ID of this resulting sorted configuration
         auto it = std::lower_bound(copConfigs.begin(), copConfigs.end(), sortedMoves);
         size_t nextId = std::distance(copConfigs.begin(), it);
         
-        // Add to transitions if not already there
         auto& trans = outCopTransitions[configId];
         if (std::find(trans.begin(), trans.end(), nextId) == trans.end()) {
             trans.push_back(nextId);
@@ -62,7 +95,7 @@ void solveCopsAndRobbers(Graph* g, int k) {
     std::vector<std::vector<int>> adj(N);
     for (int i = 0; i < N; ++i) {
         for (int j = 0; j < N; ++j) {
-            if (g->getEdge(i, j) || i == j) { // i == j adds the self-loop
+            if (g->getEdge(i, j) || i == j) {
                 adj[i].push_back(j);
             }
         }
@@ -74,6 +107,13 @@ void solveCopsAndRobbers(Graph* g, int k) {
     std::vector<int> tempConfig;
     generateCopConfigs(k, N, 0, tempConfig, copConfigs);
     
+    // --> MEMORY TRACKING: copConfigs
+    size_t copConfigsBytes = copConfigs.capacity() * sizeof(std::vector<int>);
+    for (const auto& config : copConfigs) {
+        copConfigsBytes += config.capacity() * sizeof(int);
+    }
+    std::cout << "[Memory] copConfigs vector: " << std::fixed << std::setprecision(2) << bytesToMB(copConfigsBytes) << " MB\n";
+
     // 3. Pre-calculate all team transitions
     std::vector<std::vector<size_t>> copTransitions(copConfigs.size());
     for (size_t id = 0; id < copConfigs.size(); ++id) {
@@ -81,11 +121,25 @@ void solveCopsAndRobbers(Graph* g, int k) {
         generateTeamMoves(k, copConfigs[id], 0, tempMoves, id, adj, copConfigs, copTransitions);
     }
 
+    // --> MEMORY TRACKING: copTransitions
+    size_t transitionsBytes = copTransitions.capacity() * sizeof(std::vector<size_t>);
+    for (const auto& trans : copTransitions) {
+        transitionsBytes += trans.capacity() * sizeof(size_t);
+    }
+    std::cout << "[Memory] copTransitions vector: " << bytesToMB(transitionsBytes) << " MB\n";
+
     // 4. Allocate flat arrays for game states
     size_t numStates = copConfigs.size() * N;
     bool* copTurnWins = new bool[numStates]{false};
     bool* robberTurnWins = new bool[numStates]{false};
     int* robberSafeMoves = new int[numStates]{0};
+
+    // --> MEMORY TRACKING: State Arrays
+    size_t stateArraysBytes = (numStates * sizeof(bool)) * 2 + (numStates * sizeof(int));
+    std::cout << "[Memory] Game State Arrays: " << bytesToMB(stateArraysBytes) << " MB\n";
+    
+    std::cout << "[Memory] TOTAL MAJOR ALLOCATIONS: " 
+              << bytesToMB(copConfigsBytes + transitionsBytes + stateArraysBytes) << " MB\n\n";
 
     std::cout << "Generating states for " << k << " cops...\n";
     std::cout << "Total States: " << numStates << "\n";
@@ -96,7 +150,6 @@ void solveCopsAndRobbers(Graph* g, int k) {
         for (int r = 0; r < N; ++r) {
             size_t stateId = cId * N + r;
             
-            // Is robber caught?
             bool caught = std::find(copConfigs[cId].begin(), copConfigs[cId].end(), r) != copConfigs[cId].end();
             
             if (caught) {
@@ -216,12 +269,8 @@ int main(int argc, char* argv[]) {
     const char* filename = argv[1];
     int k = std::stoi(argv[2]);
 
-    // Graph parsing using the procedural Graph constructor we finalized
     Graph g(filename);
-    
-    // Pass it cleanly to the solver
     solveCopsAndRobbers(&g, k);
 
     return 0;
-    
 }

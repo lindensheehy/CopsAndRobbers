@@ -12,5 +12,33 @@
     "graph_builder.py": {
         "Adjacency Matrix (Optional)": "assets\\matrices\\scotlandyard-all.txt",
         "Positions (Optional)": "assets\\positions\\scotlandyard.txt"
+    },
+    "k_cops_4.exe": {
+        "Adjacency Matrix": "assets\\matrices\\scotlandyard-yellow.txt",
+        "Number of Cops": "3"
+    },
+    "k_cops.exe": {
+        "Adjacency Matrix": "assets\\matrices\\scotlandyard-yellow.txt",
+        "Number of Cops": "3"
+    },
+    "k_cops_2.exe": {
+        "Adjacency Matrix": "assets\\matrices\\scotlandyard-yellow.txt",
+        "Number of Cops": "3"
+    },
+    "k_cops_3.exe": {
+        "Adjacency Matrix": "assets\\matrices\\scotlandyard-yellow.txt",
+        "Number of Cops": "3"
+    },
+    "k_cops_5.exe": {
+        "Adjacency Matrix": "assets\\matrices\\scotlandyard-yellow.txt",
+        "Number of Cops": "3"
+    },
+    "k_cops.py": {
+        "Adjacency Matrix": "assets\\matrices\\scotlandyard-yellow.txt",
+        "Number of Cops": "2"
+    },
+    "k_cops_rounds.exe": {
+        "Adjacency Matrix": "assets\\matrices\\scotlandyard-yellow.txt",
+        "Number of Cops": "2"
     }
 }

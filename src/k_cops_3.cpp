@@ -1,32 +1,71 @@
+/**
+ * ============================================================================
+ * FILE --- k_cops_3.cpp
+ * ============================================================================
+ * 
+ * OVERVIEW
+ * Solves the Cops and Robbers graph game using (A) a queue-based retrograde 
+ * analysis algorithm, (B) bit-packing for a highly lean memory footprint, and 
+ * (C) pre-calculated CSR transitions for fast adjacency lookups.
+ * 
+ * DEEPER DIVE
+ * - Queue-Based Retrograde Analysis: Instead of iterating over the entire state 
+ * space repeatedly until no changes occur, this version works strictly backwards 
+ * from known winning states. When a state is confirmed as a win for the cops, 
+ * it goes into the queue to propagate that win to its predecessors.
+ * - Bit-Packing: The work queue needs to track both the `stateId` and whose turn 
+ * it is. To avoid struct padding overhead and maintain a purely flat `size_t` 
+ * array, the Most Significant Bit (MSB) of the `size_t` is hijacked to flag if 
+ * it is the Robber's turn (1) or the Cop's turn (0).
+ * - Algorithmic Flow:
+ * 1. Pop a confirmed winning state from the queue.
+ * 2. If it was the Robber's turn (MSB 1): The preceding Cop turns that can 
+ * reach this state are automatically winning states. Flag them and push.
+ * 3. If it was the Cop's turn (MSB 0): The preceding Robber turns that could 
+ * have moved here lose one of their "safe escape routes". Decrement their 
+ * safe move counter. If it hits 0, the Robber is trapped—flag it and push.
+ * 
+ * PERFORMANCE METRICS (on scotlandyard-yellow with 3 cops)
+ * - Memory -> 6.12 GB 
+ * - Time -> 60 seconds
+ * ============================================================================
+ */
+
 #include "Graph.h"
 #include "AdjacencyList.h"
 #include <iostream>
 #include <vector>
 #include <algorithm>
 #include <cstring>
-
 #include <cstdint>
+#include <iomanip>
 
+// --- BIT-PACKING CONSTANTS ---
 // MSB is 1 for Robber's turn, 0 for Cop's turn. 
-// The rest of the bits hold the stateId.
+// The rest of the bits hold the actual stateId.
 constexpr size_t ROBBER_TURN_BIT = (size_t)1 << (sizeof(size_t) * 8 - 1);
 constexpr size_t STATE_ID_MASK = ~ROBBER_TURN_BIT;
 
+// --- MEMORY TRACKING HELPER ---
+double bytesToMB(size_t bytes) {
+    return static_cast<double>(bytes) / (1024.0 * 1024.0);
+}
+
 // --- PROCEDURAL HELPERS ---
 
-// Generates all unique sorted cop configurations iteratively.
-// outNumConfigs is passed by reference so the caller knows exactly how many states exist.
+/**
+ * Calculates exact state space size, allocates a precise contiguous array, 
+ * and iteratively generates all unique, sorted cop configurations.
+ */
 constexpr size_t MAX_COPS = 256;
 uint8_t* generateCopConfigs(uint32_t k, int N, size_t* outNumConfigs) {
     
-    // Failsafe for stack array size
     if (k > MAX_COPS) {
         std::cerr << "FATAL: Number of cops (k) exceeds maximum supported limit of " << MAX_COPS << ".\n";
         *outNumConfigs = 0;
         return nullptr;
     }
 
-    // 1. Calculate exact state space size (Combinations with replacement)
     {
         int n_val = N + k - 1;
         int k_val = k;
@@ -45,51 +84,38 @@ uint8_t* generateCopConfigs(uint32_t k, int N, size_t* outNumConfigs) {
         }
     }
     
-    // 2. Print memory footprint
     size_t totalBytes = (*outNumConfigs) * k;
-    std::cout << "Allocating " << totalBytes / (1024.0 * 1024.0) 
-              << " MB for " << *outNumConfigs << " cop configurations...\n";
-
-    // 3. Allocate exact flat array
     uint8_t* configs = new uint8_t[totalBytes];
     
-    // 4. Initialize the first configuration on the stack: [0, 0, ..., 0]
     uint8_t current[MAX_COPS];
     memset(current, 0, MAX_COPS);
     
     size_t offset = 0;
     
-    // 5. Iteratively generate the next lexicographical combination
     while(true) {
-        
-        // Write the current configuration directly to our flat array
         memcpy(&(configs[offset]), current, k);
         offset += k;
         
-        // Find the rightmost element that can be incremented
         int p = k - 1;
         while(p >= 0 && current[p] == N - 1) {
             p--;
         }
         
-        // If all elements are N-1, we are done
         if (p < 0) break; 
         
-        // Increment the found element
         current[p]++;
         
-        // Set all subsequent elements to match this new value (maintaining sorted order)
         for(uint32_t i = p + 1; i < k; ++i) {
             current[i] = current[p];
         }
-
     }
     
     return configs;
-
 }
 
-// --- STEP 3: Build CSR Transitions ---
+/**
+ * Builds a Compressed Sparse Row (CSR) representation of all possible team moves.
+ */
 void buildTransitions(size_t configCount, int k, int N, const uint8_t* configs, const AdjacencyList& adj,
                       std::vector<size_t>& outTransitionHeads, std::vector<size_t>& outTransitions) {
     
@@ -149,7 +175,6 @@ void buildTransitions(size_t configCount, int k, int N, const uint8_t* configs, 
                 }
             }
             
-            // Pre-multiplied by N for optimization
             tempMoves.push_back(nextId * N);
             
             int p = k - 1;
@@ -172,16 +197,18 @@ void buildTransitions(size_t configCount, int k, int N, const uint8_t* configs, 
     std::cout << "Transitions generated. Total edge pointers: " << outTransitions.size() << "\n";
 }
 
-// --- STEP 4: Allocate Game States ---
+/**
+ * Allocates a single memory pool. Now includes 3 distinct bytes per state 
+ * to properly track the robber's declining safe moves for the queue algorithm.
+ */
 void allocateGameStates(size_t configCount, int k, int N, 
                         uint8_t*& outStateMemoryPool, uint8_t*& outCopTurnWins, 
                         uint8_t*& outRobberTurnWins, uint8_t*& outRobberSafeMoves) {
     size_t numStates = configCount * N;
-    size_t poolSize = numStates * 3; // Now 3 bytes per state
+    size_t poolSize = numStates * 3; // 3 bytes per state
 
     std::cout << "Generating states for " << k << " cops...\n";
     std::cout << "Total States: " << numStates << "\n";
-    std::cout << "Allocating State Memory Pool: " << poolSize / (1024.0 * 1024.0) << " MB\n";
 
     outStateMemoryPool = new uint8_t[poolSize];
     std::memset(outStateMemoryPool, 0, poolSize);
@@ -191,7 +218,11 @@ void allocateGameStates(size_t configCount, int k, int N,
     outRobberSafeMoves = outStateMemoryPool + (numStates * 2);
 }
 
-// --- STEP 5: Initialize Captures ---
+/**
+ * Identifies immediate capture states (robber and cop share a node).
+ * Flags them, sets safe moves to 0, and immediately pushes them to the queue 
+ * with the appropriate turn bits set to bootstrap the retrograde loop.
+ */
 void initializeCaptures(size_t configCount, int k, int N, const uint8_t* configs, const AdjacencyList& adj,
                         uint8_t* copTurnWins, uint8_t* robberTurnWins, uint8_t* robberSafeMoves,
                         size_t* workQueue, size_t& qWriteHead) {
@@ -229,7 +260,7 @@ void initializeCaptures(size_t configCount, int k, int N, const uint8_t* configs
                 robberTurnWins[stateId] = 1;
                 robberSafeMoves[stateId] = 0; 
                 
-                // Pack the bits and push
+                // Pack the bits and push both turn states to the queue
                 workQueue[qWriteHead++] = stateId;                     // Cop's turn (MSB 0)
                 workQueue[qWriteHead++] = stateId | ROBBER_TURN_BIT;   // Robber's turn (MSB 1)
                 initialWins++;
@@ -244,6 +275,7 @@ void initializeCaptures(size_t configCount, int k, int N, const uint8_t* configs
 }
 
 // --- MAIN ALGORITHM ---
+
 void solveCopsAndRobbers(Graph* g, int k) {
 
     int N = g->nodeCount;
@@ -252,33 +284,51 @@ void solveCopsAndRobbers(Graph* g, int k) {
         return;
     }
 
-    // STEP 1 --- Create an adjacency list out of the adjacency matrix for faster iteration in the main loop
+    // STEP 1 --- Adjacency List
     AdjacencyList adj(g);
 
-    // STEP 2 --- Generate all unique, sorted cop configurations
+    // STEP 2 --- Cop Configurations
     size_t configCount;
     uint8_t* configs = generateCopConfigs(k, N, &configCount);
-    if (!configs || configCount == 0) return; // <-- Add this!
+    if (!configs || configCount == 0) return;
 
-    // STEP 3 --- Pre-calculate all team transitions (CSR Format)
+    // --> MEMORY TRACKING: configs array
+    size_t configsBytes = configCount * k * sizeof(uint8_t);
+    std::cout << "[Memory] configs array: " << std::fixed << std::setprecision(2) << bytesToMB(configsBytes) << " MB\n";
+
+    // STEP 3 --- CSR Transitions
     std::vector<size_t> transitionHeads;
     std::vector<size_t> transitions;
     buildTransitions(configCount, k, N, configs, adj, transitionHeads, transitions);
 
-    // STEP 4 --- Allocate flat arrays for game states
+    // --> MEMORY TRACKING: transitions CSR
+    size_t transitionsBytes = (transitionHeads.capacity() * sizeof(size_t)) + (transitions.capacity() * sizeof(size_t));
+    std::cout << "[Memory] transitions CSR: " << bytesToMB(transitionsBytes) << " MB\n";
+
+    // STEP 4 --- Allocate Game States
     uint8_t* stateMemoryPool = nullptr;
     uint8_t* copTurnWins = nullptr;
     uint8_t* robberTurnWins = nullptr;
     uint8_t* robberSafeMoves = nullptr;
     allocateGameStates(configCount, k, N, stateMemoryPool, copTurnWins, robberTurnWins, robberSafeMoves);
 
-    // Setup the Raw Array Queue (now just a flat array of size_t)
+    // --> MEMORY TRACKING: State Memory Pool
+    size_t statePoolBytes = configCount * N * 3 * sizeof(uint8_t);
+    std::cout << "[Memory] Game State Arrays: " << bytesToMB(statePoolBytes) << " MB\n";
+
+    // Setup the Raw Array Queue
     size_t numStates = configCount * N;
     size_t maxQueueSize = numStates * 2;
-    std::cout << "Allocating Queue: " << maxQueueSize / (1024.0 * 1024.0) << " MB\n";
     size_t* workQueue = new size_t[maxQueueSize];
     size_t qWriteHead = 0;
     size_t qReadHead = 0;
+
+    // --> MEMORY TRACKING: Work Queue
+    size_t queueBytes = maxQueueSize * sizeof(size_t);
+    std::cout << "[Memory] Analysis Work Queue: " << bytesToMB(queueBytes) << " MB\n";
+
+    std::cout << "[Memory] TOTAL MAJOR ALLOCATIONS: " 
+              << bytesToMB(configsBytes + transitionsBytes + statePoolBytes + queueBytes) << " MB\n\n";
 
     // STEP 5 --- INITIALIZATION
     initializeCaptures(configCount, k, N, configs, adj, copTurnWins, robberTurnWins, robberSafeMoves, workQueue, qWriteHead);
@@ -293,6 +343,7 @@ void solveCopsAndRobbers(Graph* g, int k) {
         int eIdx;
 
         while (qReadHead < qWriteHead) {
+            
             // Unpack the node
             size_t packedNode = workQueue[qReadHead++];
             bool isRobberTurn = (packedNode & ROBBER_TURN_BIT) != 0;
@@ -302,7 +353,9 @@ void solveCopsAndRobbers(Graph* g, int k) {
             r = stateId % N;
 
             if (isRobberTurn) {
-                // STATE: Cops won, Robber's turn.
+                // STATE: Cops won, and it was the Robber's turn.
+                // LOGIC: The Cops' previous turn is guaranteed to be a win if they 
+                // simply CHOOSE to transition to this state.
                 copTransStart = transitionHeads[cId];
                 copTransEnd = transitionHeads[cId + 1];
                 
@@ -316,7 +369,9 @@ void solveCopsAndRobbers(Graph* g, int k) {
                 }
             } 
             else {
-                // STATE: Cops won, Cops' turn.
+                // STATE: Cops won, and it was the Cops' turn.
+                // LOGIC: The Robber's previous turn loses a safe escape route because 
+                // stepping here allows the cops to force a win.
                 
                 // 1. Robber stayed in place
                 prevStateId = cId * N + r;
@@ -328,7 +383,7 @@ void solveCopsAndRobbers(Graph* g, int k) {
                     }
                 }
 
-                // 2. Robber moved from adjacent
+                // 2. Robber moved from an adjacent node
                 rEdges = adj.getEdges(r);
                 eIdx = 0;
                 while (rEdges[eIdx] != 255) {
@@ -401,5 +456,4 @@ int main(int argc, char* argv[]) {
     solveCopsAndRobbers(&g, k);
 
     return 0;
-    
 }
