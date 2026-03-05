@@ -1,3 +1,34 @@
+/**
+ * ============================================================================
+ * FILE --- k_cops_5.cpp
+ * ============================================================================
+ * 
+ * OVERVIEW
+ * Solves the Cops and Robbers graph game with a priority on minimizing memory 
+ * footprint. It does this using (A) extreme bit-packing of game states, (B) 
+ * on-the-fly transition calculations instead of precomputed tables, and (C) a 
+ * dynamic, multi-threaded work dispenser for load balancing.
+ * 
+ * DEEPER DIVE
+ * - Extreme Bit-Packing: Instead of separate arrays for Cop turns, Robber turns, 
+ * and safe move counts, everything is packed into a single `std::atomic<uint8_t>` 
+ * per state. Bit 0 tracks if the cops win, while Bits 1-7 hold the Robber's 
+ * safe move counter (max 127).
+ * - On-The-Fly Calculation: The massive CSR transition table from previous versions 
+ * is completely removed. Transitions are now generated in real-time during the 
+ * BFS loop using a fast-path binary search and unrolled register comparisons. 
+ * This trades CPU cycles for massive memory savings.
+ * - Dynamic Work Dispenser: Instead of statically chunking the frontier, threads 
+ * dynamically pull batches of work using an atomic counter (`sharedIndex.fetch_add`). 
+ * This prevents thread starvation if some chunks have denser on-the-fly 
+ * calculations than others.
+ * 
+ * PERFORMANCE METRICS (on scotlandyard-yellow with 3 cops)
+ * - Memory -> 0.33 GB
+ * - Time -> 200 seconds
+ * ============================================================================
+ */
+
 #include "Graph.h"
 #include "AdjacencyList.h"
 #include <iostream>
@@ -23,10 +54,17 @@ constexpr uint8_t COP_WIN_BIT      = 1 << 0;
 constexpr uint8_t SAFE_MOVES_SHIFT = 1;
 constexpr uint8_t SAFE_MOVES_MASK  = 0xFE; // 1111 1110
 
+// --- MEMORY TRACKING HELPER ---
+double bytesToMB(size_t bytes) {
+    return static_cast<double>(bytes) / (1024.0 * 1024.0);
+}
+
 // --- PROCEDURAL HELPERS ---
 
-// Generates all unique sorted cop configurations iteratively.
-// outNumConfigs is passed by reference so the caller knows exactly how many states exist.
+/**
+ * Calculates exact state space size, allocates a precise contiguous array, 
+ * and iteratively generates all unique, sorted cop configurations.
+ */
 constexpr size_t MAX_COPS = 256;
 uint8_t* generateCopConfigs(uint32_t k, int N, size_t* outNumConfigs) {
     
@@ -56,21 +94,17 @@ uint8_t* generateCopConfigs(uint32_t k, int N, size_t* outNumConfigs) {
         }
     }
     
-    // 2. Print memory footprint
+    // 2. Allocate exact flat array
     size_t totalBytes = (*outNumConfigs) * k;
-    std::cout << "Allocating " << totalBytes / (1024.0 * 1024.0 * 1024.0) 
-              << " GB for " << *outNumConfigs << " cop configurations...\n";
-
-    // 3. Allocate exact flat array
     uint8_t* configs = new uint8_t[totalBytes];
     
-    // 4. Initialize the first configuration on the stack: [0, 0, ..., 0]
+    // 3. Initialize the first configuration on the stack: [0, 0, ..., 0]
     uint8_t current[MAX_COPS];
     memset(current, 0, MAX_COPS);
     
     size_t offset = 0;
     
-    // 5. Iteratively generate the next lexicographical combination
+    // 4. Iteratively generate the next lexicographical combination
     while(true) {
         
         // Write the current configuration directly to our flat array
@@ -97,17 +131,18 @@ uint8_t* generateCopConfigs(uint32_t k, int N, size_t* outNumConfigs) {
     }
     
     return configs;
-
 }
 
-// --- STEP 4: Allocate Game States (ATOMIC) ---
+/**
+ * Allocates a single, highly compressed memory pool for tracking game states.
+ * Replaces the 3 separate byte arrays from V4 with a single byte per state, 
+ * utilizing bitwise shifts to store multiple variables.
+ */
 void allocateGameStates(size_t configCount, int N, std::atomic<uint8_t>*& outGameStates) {
     size_t numStates = configCount * N;
 
     std::cout << "Generating ATOMIC states...\n";
     std::cout << "Total States: " << numStates << "\n";
-    std::cout << "Allocating Bit-Packed Atomic Memory Pool: " 
-              << (numStates * sizeof(std::atomic<uint8_t>)) / (1024.0 * 1024.0 * 1024.0) << " GB\n";
     
     // 1. Single contiguous allocation of 8-bit integers
     outGameStates = new std::atomic<uint8_t>[numStates];
@@ -118,7 +153,11 @@ void allocateGameStates(size_t configCount, int N, std::atomic<uint8_t>*& outGam
     }
 }
 
-// --- STEP 5: Initialize Captures ---
+/**
+ * Identifies immediate capture states (robber and cop share a node).
+ * Flags them, handles the bit-shifted safe moves counter, and pushes 
+ * them to the initial wave to kickstart the BFS. Now includes a progress bar.
+ */
 void initializeCaptures(size_t configCount, int k, int N, const uint8_t* configs, const AdjacencyList& adj,
                         std::atomic<uint8_t>* gameStates, std::vector<size_t>& currentFrontier) {
     
@@ -170,12 +209,13 @@ void initializeCaptures(size_t configCount, int k, int N, const uint8_t* configs
     }
 
     // Clear the progress line
-    std::cout << "\rInitializing Captures: 100% completed.         \n";
+    std::cout << "\rInitializing Captures: 100% completed.        \n";
     std::cout << "Initialized " << initialWins << " winning states (Captures).\n";
     std::cout << "Starting Multi-Threaded Level-Synchronous BFS...\n";
 }
 
 // --- MAIN ALGORITHM (LEAN MEMORY + PROGRESS TRACKING) ---
+
 void solveCopsAndRobbers(Graph* g, int k) {
 
     int N = g->nodeCount;
@@ -184,24 +224,39 @@ void solveCopsAndRobbers(Graph* g, int k) {
         return;
     }
 
+    // STEP 1 --- Adjacency List
     AdjacencyList adj(g);
 
+    // STEP 2 --- Cop Configurations
     size_t configCount;
     uint8_t* configs = generateCopConfigs(k, N, &configCount);
     if (!configs || configCount == 0) return;
 
+    // STEP 3 --- Allocate Game States (Bit-Packed)
     std::atomic<uint8_t>* gameStates = nullptr;
     allocateGameStates(configCount, N, gameStates);
 
     std::vector<size_t> currentFrontier;
     currentFrontier.reserve(10000000); 
 
+    // --> MEMORY TRACKING: Centralized Output
+    size_t configsBytes = configCount * k * sizeof(uint8_t);
+    size_t stateArraysBytes = configCount * N * sizeof(std::atomic<uint8_t>);
+    size_t frontierBytes = currentFrontier.capacity() * sizeof(size_t);
+    
+    std::cout << "\n[Memory] configs array: " << std::fixed << std::setprecision(2) << bytesToMB(configsBytes) << " MB\n";
+    std::cout << "[Memory] Game State Arrays (Bit-Packed Atomics): " << bytesToMB(stateArraysBytes) << " MB\n";
+    std::cout << "[Memory] BFS Frontier Queue: " << bytesToMB(frontierBytes) << " MB\n";
+    std::cout << "[Memory] TOTAL MAJOR ALLOCATIONS: " 
+              << bytesToMB(configsBytes + stateArraysBytes + frontierBytes) << " MB\n\n";
+
+    // STEP 4 --- INITIALIZATION
     initializeCaptures(configCount, k, N, configs, adj, gameStates, currentFrontier);
 
     size_t totalStateSpace = configCount * N * 2;
     size_t statesProcessedPriorWaves = 0;
 
-    // STEP 4 --- MAIN MULTI-THREADED RETROGRADE LOOP
+    // STEP 5 --- MAIN MULTI-THREADED RETROGRADE LOOP
     {
         int passes = 0;
         unsigned int numThreads = std::thread::hardware_concurrency();

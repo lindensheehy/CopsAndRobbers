@@ -1,3 +1,38 @@
+/**
+ * ============================================================================
+ * FILE --- CopsAndRobbers_V4_Multithreaded.cpp
+ * ============================================================================
+ * 
+ * OVERVIEW
+ * Solves the Cops and Robbers graph game using (A) exact combinatorial state 
+ * generation, (B) parallelized CSR transition building, and (C) a multithreaded 
+ * Level-Synchronous BFS retrograde analysis driven by lock-free atomics.
+ * 
+ * DEEPER DIVE
+ * - Level-Synchronous BFS - Instead of a single continuous queue, the workload is 
+ * divided into "frontiers" or "waves". Thread workers process chunks of the 
+ * `currentFrontier` simultaneously, pushing discovered winning states into local 
+ * vectors. These local vectors are then merged to form the next wave.
+ * - Lock-Free Concurrency (The Magic Tricks): Multiple threads will inevitably 
+ * find different paths that lead back to the *same* prior state. To prevent a 
+ * state from being pushed to the next frontier multiple times (which would cause 
+ * an exponential explosion in redundant work), we use `std::atomic` arrays.
+ * 1. `exchange(1)`: Sets a state to a win and returns what it *used* to be. 
+ * If it returns 0, this specific thread was the one to flip it, so this 
+ * thread "owns" the right to queue it.
+ * 2. `fetch_sub(1)`: Decrements safe moves safely across threads. If it 
+ * returns 1, this specific thread delivered the final blow that trapped 
+ * the robber, granting it the right to queue the state.
+ * - Parallel Prefix Sum: Transition building uses a map-reduce pattern where 
+ * threads build local moves, and the main thread uses a prefix sum array to 
+ * pre-calculate exact offsets for a unified, lock-free global insertion phase.
+ * 
+ * PERFORMANCE METRICS (on scotlandyard-yellow with 3 cops)
+ * - Memory -> 3.68 GB 
+ * - Time -> 14 seconds
+ * ============================================================================
+ */
+
 #include "Graph.h"
 #include "AdjacencyList.h"
 #include <iostream>
@@ -7,27 +42,34 @@
 #include <thread>
 #include <atomic>
 #include <cstdint>
+#include <iomanip>
 
+// --- BIT-PACKING CONSTANTS ---
 // MSB is 1 for Robber's turn, 0 for Cop's turn. 
 // The rest of the bits hold the stateId.
 constexpr size_t ROBBER_TURN_BIT = (size_t)1 << (sizeof(size_t) * 8 - 1);
 constexpr size_t STATE_ID_MASK = ~ROBBER_TURN_BIT;
 
+// --- MEMORY TRACKING HELPER ---
+double bytesToMB(size_t bytes) {
+    return static_cast<double>(bytes) / (1024.0 * 1024.0);
+}
+
 // --- PROCEDURAL HELPERS ---
 
-// Generates all unique sorted cop configurations iteratively.
-// outNumConfigs is passed by reference so the caller knows exactly how many states exist.
+/**
+ * Calculates exact state space size, allocates a precise contiguous array, 
+ * and iteratively generates all unique, sorted cop configurations.
+ */
 constexpr size_t MAX_COPS = 256;
 uint8_t* generateCopConfigs(uint32_t k, int N, size_t* outNumConfigs) {
     
-    // Failsafe for stack array size
     if (k > MAX_COPS) {
         std::cerr << "FATAL: Number of cops (k) exceeds maximum supported limit of " << MAX_COPS << ".\n";
         *outNumConfigs = 0;
         return nullptr;
     }
 
-    // 1. Calculate exact state space size (Combinations with replacement)
     {
         int n_val = N + k - 1;
         int k_val = k;
@@ -46,53 +88,40 @@ uint8_t* generateCopConfigs(uint32_t k, int N, size_t* outNumConfigs) {
         }
     }
     
-    // 2. Print memory footprint
     size_t totalBytes = (*outNumConfigs) * k;
-    std::cout << "Allocating " << totalBytes / (1024.0 * 1024.0) 
-              << " MB for " << *outNumConfigs << " cop configurations...\n";
-
-    // 3. Allocate exact flat array
     uint8_t* configs = new uint8_t[totalBytes];
     
-    // 4. Initialize the first configuration on the stack: [0, 0, ..., 0]
     uint8_t current[MAX_COPS];
     memset(current, 0, MAX_COPS);
     
     size_t offset = 0;
     
-    // 5. Iteratively generate the next lexicographical combination
     while(true) {
-        
-        // Write the current configuration directly to our flat array
         memcpy(&(configs[offset]), current, k);
         offset += k;
         
-        // Find the rightmost element that can be incremented
         int p = k - 1;
         while(p >= 0 && current[p] == N - 1) {
             p--;
         }
         
-        // If all elements are N-1, we are done
         if (p < 0) break; 
         
-        // Increment the found element
         current[p]++;
         
-        // Set all subsequent elements to match this new value (maintaining sorted order)
         for(uint32_t i = p + 1; i < k; ++i) {
             current[i] = current[p];
         }
-
     }
     
     return configs;
-
 }
 
-#include <thread>
-
-// --- STEP 3: Build CSR Transitions (MULTI-THREADED) ---
+/**
+ * Builds a Compressed Sparse Row (CSR) representation of all possible team moves
+ * across multiple threads. Utilizes a Map-Reduce style pattern to avoid mutex 
+ * locks during the transition generation.
+ */
 void buildTransitions(size_t configCount, int k, int N, const uint8_t* configs, const AdjacencyList& adj,
                       std::vector<size_t>& outTransitionHeads, std::vector<size_t>& outTransitions) {
     
@@ -210,7 +239,7 @@ void buildTransitions(size_t configCount, int k, int N, const uint8_t* configs, 
     outTransitions.clear();
     outTransitions.reserve(totalTransitions); 
     
-    // Stitch the local chunks together
+    // Stitch the local chunks together safely in a single thread
     for (unsigned int i = 0; i < numThreads; ++i) {
         if (!allLocalTransitions[i].empty()) {
             outTransitions.insert(outTransitions.end(), 
@@ -222,7 +251,11 @@ void buildTransitions(size_t configCount, int k, int N, const uint8_t* configs, 
     std::cout << "Transitions generated. Total edge pointers: " << outTransitions.size() << "\n";
 }
 
-// --- STEP 4: Allocate Game States (ATOMIC) ---
+/**
+ * Allocates `std::atomic` tracking arrays. Because we are using hardware atomics, 
+ * we can no longer use a single flat memory pool (memset on atomics is undefined).
+ * We initialize them strictly with `std::memory_order_relaxed`.
+ */
 void allocateGameStates(size_t configCount, int k, int N, 
                         std::atomic<uint8_t>*& outCopTurnWins, 
                         std::atomic<uint8_t>*& outRobberTurnWins, 
@@ -236,7 +269,7 @@ void allocateGameStates(size_t configCount, int k, int N,
     outRobberTurnWins = new std::atomic<uint8_t>[numStates];
     outRobberSafeMoves = new std::atomic<uint8_t>[numStates];
 
-    // Initialize atomics safely (memset is undefined behavior for atomics)
+    // Initialize atomics safely
     for (size_t i = 0; i < numStates; ++i) {
         outCopTurnWins[i].store(0, std::memory_order_relaxed);
         outRobberTurnWins[i].store(0, std::memory_order_relaxed);
@@ -244,7 +277,11 @@ void allocateGameStates(size_t configCount, int k, int N,
     }
 }
 
-// --- STEP 5: Initialize Captures ---
+/**
+ * Identifies immediate capture states (robber and cop share a node).
+ * Flags them, sets safe moves to 0, and pushes them to the initial wave (frontier)
+ * to kickstart the BFS.
+ */
 void initializeCaptures(size_t configCount, int k, int N, const uint8_t* configs, const AdjacencyList& adj,
                         std::atomic<uint8_t>* copTurnWins, std::atomic<uint8_t>* robberTurnWins, std::atomic<uint8_t>* robberSafeMoves,
                         std::vector<size_t>& currentFrontier) {
@@ -293,6 +330,7 @@ void initializeCaptures(size_t configCount, int k, int N, const uint8_t* configs
 }
 
 // --- MAIN ALGORITHM ---
+
 void solveCopsAndRobbers(Graph* g, int k) {
 
     int N = g->nodeCount;
@@ -301,29 +339,49 @@ void solveCopsAndRobbers(Graph* g, int k) {
         return;
     }
 
-    // STEP 1 --- Create an adjacency list out of the adjacency matrix for faster iteration in the main loop
+    // STEP 1 --- Adjacency List
     AdjacencyList adj(g);
 
-    // STEP 2 --- Generate all unique, sorted cop configurations
+    // STEP 2 --- Cop Configurations
     size_t configCount;
     uint8_t* configs = generateCopConfigs(k, N, &configCount);
-    if (!configs || configCount == 0) return; // <-- Add this!
+    if (!configs || configCount == 0) return;
 
-    // STEP 3 --- Pre-calculate all team transitions (CSR Format)
+    // --> MEMORY TRACKING: configs array
+    size_t configsBytes = configCount * k * sizeof(uint8_t);
+    std::cout << "[Memory] configs array: " << std::fixed << std::setprecision(2) << bytesToMB(configsBytes) << " MB\n";
+
+    // STEP 3 --- CSR Transitions
     std::vector<size_t> transitionHeads;
     std::vector<size_t> transitions;
     buildTransitions(configCount, k, N, configs, adj, transitionHeads, transitions);
 
-    // STEP 4 --- Allocate flat arrays for game states
+    // --> MEMORY TRACKING: transitions CSR
+    size_t transitionsBytes = (transitionHeads.capacity() * sizeof(size_t)) + (transitions.capacity() * sizeof(size_t));
+    std::cout << "[Memory] transitions CSR: " << bytesToMB(transitionsBytes) << " MB\n";
+
+    // STEP 4 --- Allocate Game States
     std::atomic<uint8_t>* copTurnWins = nullptr;
     std::atomic<uint8_t>* robberTurnWins = nullptr;
     std::atomic<uint8_t>* robberSafeMoves = nullptr;
     allocateGameStates(configCount, k, N, copTurnWins, robberTurnWins, robberSafeMoves);
 
+    // --> MEMORY TRACKING: Atomic State Arrays
+    size_t stateArraysBytes = configCount * N * 3 * sizeof(std::atomic<uint8_t>);
+    std::cout << "[Memory] Game State Arrays (Atomics): " << bytesToMB(stateArraysBytes) << " MB\n";
+
     std::vector<size_t> currentFrontier;
     // Pre-allocate to prevent reallocations on Pass 1
     currentFrontier.reserve(configCount * N); 
 
+    // --> MEMORY TRACKING: BFS Frontier
+    size_t frontierBytes = currentFrontier.capacity() * sizeof(size_t);
+    std::cout << "[Memory] BFS Frontier Queue: " << bytesToMB(frontierBytes) << " MB\n";
+
+    std::cout << "[Memory] TOTAL MAJOR ALLOCATIONS: " 
+              << bytesToMB(configsBytes + transitionsBytes + stateArraysBytes + frontierBytes) << " MB\n\n";
+
+    // STEP 5 --- INITIALIZATION
     initializeCaptures(configCount, k, N, configs, adj, copTurnWins, robberTurnWins, robberSafeMoves, currentFrontier);
 
     // STEP 6 --- MAIN MULTI-THREADED RETROGRADE LOOP
@@ -454,6 +512,7 @@ void solveCopsAndRobbers(Graph* g, int k) {
     }
 
     // --- CLEANUP ---
+    delete[] configs;
     delete[] copTurnWins;
     delete[] robberTurnWins;
     delete[] robberSafeMoves;
@@ -476,5 +535,4 @@ int main(int argc, char* argv[]) {
     solveCopsAndRobbers(&g, k);
 
     return 0;
-    
 }
