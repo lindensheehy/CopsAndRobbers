@@ -1,0 +1,3 @@
+python replay_game.py .\assets\matrices\scotlandyard-yellow.txt .\cached_solutions\scotlandyard_2cops_perfect_game.json .\assets\positions\scotlandyard.txt
+python play_game_robber.py .\assets\matrices\scotlandyard-yellow.txt .\dp_tables\scotlandyard_2cops_dp_table.npz .\assets\positions\scotlandyard.txt
+python k_cops.py .\assets\matrices\scotlandyard.txt 2 .\assets\positions\scotlandyard.txt 
