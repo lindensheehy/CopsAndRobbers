@@ -21,7 +21,25 @@
 constexpr size_t MAX_COPS = 256;
 
 // --- PROCEDURAL HELPERS ---
-
+// Explicit helper to check if the robber is caught or can escape from node r1
+bool check_RobberHiddenNode(int r1, int k, size_t cId, int N, const uint8_t* configs, const AdjacencyList& adj, const int* col1) {
+    // 1. Instant Catch Rule: Is a cop physically standing on r1?
+    for (int i = 0; i < k; i++) {
+        if (configs[cId * k + i] == r1) return true; 
+    }
+    
+    // 2. Escape Check Rule: Can the robber survive by staying at r1?
+    if (col1[cId * N + r1] == -1) return false; 
+    
+    // 3. Move Escape Rule: Can the robber survive by moving to a neighbor?
+    uint8_t* N_r1 = adj.getEdges(r1);
+    for (int j = 0; j < adj.maxDegree && N_r1[j] != 255; j++) {
+        if (col1[cId * N + N_r1[j]] == -1) return false; 
+    }
+    
+    // If the cops weren't on r1, and all escape paths lead to a cop win, the robber is trapped.
+    return true; 
+}
 uint8_t* generateCopConfigs(uint32_t k, int N, size_t* outNumConfigs) {
     if (k > MAX_COPS) { *outNumConfigs = 0; return nullptr; }
 
@@ -162,8 +180,7 @@ void solveCopsAndRobbers(Graph* g, int k, const char* filename) {
             if (caught) {
                 col1[stateId] = 0;
                 col2[stateId] = 0;
-                col3[stateId] = 0; // FIX: Added base capture for invisible phases
-                col4[stateId] = 0; // FIX: Added base capture for invisible phases
+                // DO NOT SET col3 OR col4 HERE! r does not mean the true Robber location. It means the last known Robber location (the shadow). By setting col3 = 0 and col4 = 0 when the Cop stands on r, I literally told the mathematical DP table that stepping on the Robber's shadow counts as winning the game.
                 initialWins++;
             }
         }
@@ -191,24 +208,17 @@ void solveCopsAndRobbers(Graph* g, int k, const char* filename) {
                 if (col4[stateId] == -1) {
                     bool all_paths_caught = true;
                     
-                    auto check_r1 = [&](int r1) {
-                        for(int i=0; i<k; i++) if (configs[cId*k + i] == r1) return true;
-                        
-                        uint8_t* N_r1 = adj.getEdges(r1);
-                        if (col1[cId * N + r1] == -1) return false; 
-                        // FIX: Bounded maxDegree check
-                        for(int j=0; j < adj.maxDegree && N_r1[j] != 255; j++) {
-                            if (col1[cId * N + N_r1[j]] == -1) return false; 
-                        }
-                        return true;
-                    };
-
-                    if (!check_r1(r0)) all_paths_caught = false;
-                    else {
+                    // Check if the robber stays at r0
+                    if (!check_RobberHiddenNode(r0, k, cId, N, configs, adj, col1)) {
+                        all_paths_caught = false;
+                    } else {
+                        // Check all neighbors of r0
                         uint8_t* N_r0 = adj.getEdges(r0);
-                        // FIX: Bounded maxDegree check
                         for(int i=0; i < adj.maxDegree && N_r0[i] != 255; i++) {
-                            if (!check_r1(N_r0[i])) { all_paths_caught = false; break; }
+                            if (!check_RobberHiddenNode(N_r0[i], k, cId, N, configs, adj, col1)) { 
+                                all_paths_caught = false; 
+                                break; 
+                            }
                         }
                     }
 
@@ -252,17 +262,35 @@ void solveCopsAndRobbers(Graph* g, int k, const char* filename) {
         }
 
         // EARLY STOPPING CHECK
-        for (size_t cId = 0; cId < configCount; ++cId) {
-            bool universalWin = true;
-            for (int r = 0; r < N; ++r) {
-                if (col1[cId * N + r] == -1) { universalWin = false; break; }
-            }
-            if (universalWin) { winningGroup = cId; break; }
-        }
+        // for (size_t cId = 0; cId < configCount; ++cId) {
+        //     bool universalWin = true;
+        //     for (int r = 0; r < N; ++r) {
+        //         if (col1[cId * N + r] == -1) { universalWin = false; break; }
+        //     }
+        //     if (universalWin) { winningGroup = cId; break; }
+        // }
         
-        if (winningGroup != -1) {
-            std::cout << "\n>>> EARLY STOP: Verified winning cop configuration found! <<<\n";
-            break;
+        // if (winningGroup != -1) {
+        //     std::cout << "\n>>> EARLY STOP: Verified winning cop configuration found! <<<\n";
+        //     break;
+        // }
+    }
+ // <-- This is the closing bracket for: while (changed) { ... }
+
+    // --- VERDICT EVALUATION ---
+    // Now that the entire DP table is fully calculated, check if any cop 
+    // configuration guarantees a win (no -1s in their Col 1 row).
+    for (size_t cId = 0; cId < configCount; ++cId) {
+        bool universalWin = true;
+        for (int r = 0; r < N; ++r) {
+            if (col1[cId * N + r] == -1) { 
+                universalWin = false; 
+                break; 
+            }
+        }
+        if (universalWin) { 
+            winningGroup = cId; 
+            break; 
         }
     }
 
@@ -273,20 +301,35 @@ void solveCopsAndRobbers(Graph* g, int k, const char* filename) {
         std::cout << "Valid Start Configuration: (";
         for(int i = 0; i < k; i++) std::cout << (int)configs[winningGroup * k + i] << (i == k - 1 ? "" : ", ");
         std::cout << ")\n";
-        
-        std::cout << "Dumping DP Tables to dp_tables/alternating_dp.csv...\n";
-        std::ofstream dpFile("dp_tables/alternating_dp.csv");
-        dpFile << "CopConfig,RobberNode,Col1_VisCopTurn,Col2_VisRobTurn,Col3_InvisCopTurn,Col4_InvisRobTurn\n";
-        for (size_t cId = 0; cId < configCount; ++cId) {
-            for (int r = 0; r < N; ++r) {
-                size_t sId = cId * N + r;
-                for(int i = 0; i < k; i++) dpFile << (int)configs[cId * k + i] << (i == k - 1 ? "" : "-");
-                dpFile << "," << r << "," << col1[sId] << "," << col2[sId] << "," << col3[sId] << "," << col4[sId] << "\n";
-            }
-        }
-        dpFile.close();
     } else {
         std::cout << "RESULT: LOSS. Cops cannot guarantee a win under alternating rules.\n";
+    }
+
+    std::cout << "Dumping raw binary DP tables...\n";
+    std::ofstream binFile("assets/dp_tables/alternating_raw.bin", std::ios::binary);
+    
+    if (!binFile.is_open()) {
+        std::cerr << "\n[FATAL ERROR] C++ could not create 'assets/dp_tables/alternating_raw.bin'.\n";
+    } else {
+        int32_t outN = N;
+        int32_t outK = k;
+        uint64_t outConfigs = configCount;
+        
+        binFile.write(reinterpret_cast<const char*>(&outN), sizeof(outN));
+        binFile.write(reinterpret_cast<const char*>(&outK), sizeof(outK));
+        binFile.write(reinterpret_cast<const char*>(&outConfigs), sizeof(outConfigs));
+        binFile.write(reinterpret_cast<const char*>(configs), configCount * k);
+        
+        size_t memSize = numStates * sizeof(int);
+        binFile.write(reinterpret_cast<const char*>(col1), memSize);
+        binFile.write(reinterpret_cast<const char*>(col2), memSize);
+        binFile.write(reinterpret_cast<const char*>(col3), memSize);
+        binFile.write(reinterpret_cast<const char*>(col4), memSize);
+        binFile.close();
+
+        std::cout << "Launching Python bridge to generate NPZ...\n";
+        std::string pyCmd = "python build_npz.py";
+        std::system(pyCmd.c_str());
     }
 
     delete[] configs; delete[] transitionHeads; delete[] transitions;
