@@ -78,6 +78,9 @@ TOOL_CONFIG = {
     "k_cops_rounds.exe": [
         ("Adjacency Matrix", "*.txt"),
         ("Number of Cops", "int") 
+    ],
+    "k_cops_tickets.exe": [
+        ("Max Number of Tickets", "int")
     ]
 }
 
