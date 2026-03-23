@@ -1,0 +1,14 @@
+so first make sure that the alternating cops work properly
+then after extracting and formating npz properly 
+work backwards to find the token solution.
+for ai ml project let 2 ais train against each other.
+for ml: the game runs for certain amount of rounds, two ais will be battling each other on target of:
+tokens are
+so for ml: visible for certain k (for example 6), 22, use limited tokens (exact numbers to be researched),
+
+meeting notes:
+so one approach is computing dp tables for graphs with just taxi, bus, train, all, and then combining information from all dp tables.
+For again the tickets on algorithm it would be nice to start a subproblem is robber has limited tickets - so whenever it moves it HAS to say what ticket it takes
+so if robber does not say anything its taxi (yellow)
+
+next week in person 3 to 4 Friday 27th
