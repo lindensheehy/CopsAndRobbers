@@ -1,0 +1,33 @@
+be careful when training ml model to not make cops prioritize distance - rather the capture itself,
+because there is such thing as zombies and survivors where cops mindlessly try to get close to robber. 
+A good thing to try is having dp table for alternating visiblity and train cops on that and THEN train robber.
+So for robber the small reward is surviving one more round, and for cop - getting closer is slight reward.
+
+Maybe we should first handle the tokens of the robber - just that - with informing to cop. 
+We talked about working back from dp table we look for table with constrains emposed by tokens.
+
+lets say half visible and tokens are only for the robber. IF we do not find a path that satisfies with token constrains
+we add more cops, compute the table check again
+
+so we need to design algorithm to backtrack the dp table.
+
+FOr the robber make cops use as many tokens as possible. if the robber cannot force the cops to use too many tickets, then the cops can win *even with that constraint*.
+
+Again it is important before presentation of capstone to make sure dp table is formatted properly.
+
+there are algorithms that can take random paths until it finds on in dp table that satisfies us - probability algorithm 
+(picking solution at ranom if there is a chance there could be a right one).
+
+from dp tables we can build a graph - all nodes are all combination of nodes. and we can deduct where to go - which makes another graph! (we can go here there there)
+
+so we make the graph and the weird constraint is triplet of resource which probably was studied.
+
+so we can compute connected nodes on a fly it is called implicit graph to prevent spoofing.
+
+example OF ORDER OF MAGNITUDE AND FIND shortest distance but its hacky.
+
+WE Gonna start for shortest path where cops have shared tokens and robber is infinite to simplify
+so steps are clear.
+
+
+thursday April 2nd 9:30 in person
