@@ -7,7 +7,7 @@ from pathlib import Path
 COMPILER = "g++"
 FLAGS = ["-Wall", "-std=c++17", "-Ilib/include", "-Ofast"]
 
-# Directories (These will now be evaluated relative to this script's location)
+# Directories
 LIB_SRC_DIR = Path("lib/src")
 SOLVERS_DIR = Path("solvers")
 BUILD_DIR = Path("build")
@@ -15,17 +15,15 @@ OBJ_DIR = BUILD_DIR / "obj"
 BIN_DIR = BUILD_DIR / "bin"
 
 def main():
-    # 0. Ensure the script runs relative to its own location, not the terminal's CWD
+    # 0. Ensure the script runs relative to its own location
     script_dir = Path(__file__).resolve().parent
     os.chdir(script_dir)
 
-    # 1. Hard fail if the required build directories do not exist
-    if not OBJ_DIR.is_dir() or not BIN_DIR.is_dir():
-        print("[FATAL] Required build directories are missing.", file=sys.stderr)
-        print(f"Ensure both '{OBJ_DIR}' and '{BIN_DIR}' exist in the cpp folder before building.", file=sys.stderr)
-        sys.exit(1)
+    # 1. Create the required build directories if they do not exist
+    OBJ_DIR.mkdir(parents=True, exist_ok=True)
+    BIN_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 2. Gather .cpp files purely by directory scanning
+    # 2. Gather .cpp files
     lib_files = list(LIB_SRC_DIR.glob("*.cpp"))
     solver_files = list(SOLVERS_DIR.glob("*.cpp"))
 
@@ -36,14 +34,13 @@ def main():
     obj_files = []
     libs_compiled = 0
 
-    # 3. Compile backend library files to .o
+    # 3. Compile backend library files to .o (Still hard-fails on error)
     if lib_files:
         print(f"--- Compiling Backend Logic ({len(lib_files)} files) ---")
         for src in lib_files:
             obj_path = OBJ_DIR / f"{src.stem}.o"
             obj_files.append(obj_path)
 
-            # Skip compilation if the object file is already up to date
             if obj_path.exists() and obj_path.stat().st_mtime >= src.stat().st_mtime:
                 continue
 
@@ -52,14 +49,16 @@ def main():
             
             result = subprocess.run(cmd)
             if result.returncode != 0:
-                print(f"\n[FATAL] Build failed on {src.name}")
+                print(f"\n[FATAL] Core library build failed on {src.name}. Aborting.")
                 sys.exit(1)
             libs_compiled += 1
             
         if libs_compiled == 0:
             print("All backend objects are up to date.")
 
-    # 4. Compile and link the solvers (with advanced timestamp caching)
+    # 4. Compile and link the solvers (Continues on error)
+    failed_solvers = []
+    
     if solver_files:
         print(f"\n--- Building Executables ({len(solver_files)} targets) ---")
         obj_args = [str(o) for o in obj_files]
@@ -68,7 +67,6 @@ def main():
         for solver_src in solver_files:
             exe_path = BIN_DIR / f"{solver_src.stem}.exe"
             
-            # Rebuild if: Exe doesn't exist, OR solver source is newer, OR any object file is newer.
             needs_rebuild = True
             if exe_path.exists():
                 exe_mtime = exe_path.stat().st_mtime
@@ -85,15 +83,26 @@ def main():
             print(f"Linking:   {exe_path.name}")
             
             result = subprocess.run(cmd)
-            if result.returncode != 0:
-                print(f"\n[FATAL] Build failed on {solver_src.name}")
-                sys.exit(1)
-            exes_built += 1
             
-        if exes_built == 0:
+            # If it fails, record it and move on instead of crashing
+            if result.returncode != 0:
+                print(f"[ERROR] Failed to compile {solver_src.name}")
+                failed_solvers.append(solver_src.name)
+            else:
+                exes_built += 1
+            
+        if exes_built == 0 and not failed_solvers:
             print("All executables are up to date.")
 
-    print("\n[SUCCESS] Build process completed.")
+    # 5. Final Build Summary
+    if failed_solvers:
+        print(f"\n[WARNING] Build finished with errors. {len(failed_solvers)} solver(s) failed:")
+        for failed_file in failed_solvers:
+            print(f"  - {failed_file}")
+        # Exit with a non-zero code so CI/CD pipelines know the build wasn't fully successful
+        sys.exit(1) 
+    else:
+        print("\n[SUCCESS] Build process completed successfully.")
 
 if __name__ == "__main__":
     main()

@@ -2,7 +2,7 @@
 #include <iostream>
 #include <cstring>
 
-uint8_t* generateCopConfigs(uint32_t k, int N, size_t* outNumConfigs) {
+uint8_t* generateCopConfigs(uint32_t k, int N, size_t* outNumConfigs, Allocator* allocator) {
     
     // Failsafe for stack array size
     if (k > MAX_COPS) {
@@ -32,7 +32,11 @@ uint8_t* generateCopConfigs(uint32_t k, int N, size_t* outNumConfigs) {
 
     // 2. Allocate exact flat array
     size_t totalBytes = (*outNumConfigs) * k;
-    uint8_t* configs = new uint8_t[totalBytes];
+    uint8_t* configs = nullptr;
+    allocator->requestAlloc<uint8_t>("Cop Configs", totalBytes, &configs);
+    allocator->allocate();
+
+    if (configs == nullptr) return nullptr;
     
     // 3. Initialize the first configuration on the stack: [0, 0, ..., 0]
     uint8_t current[MAX_COPS];

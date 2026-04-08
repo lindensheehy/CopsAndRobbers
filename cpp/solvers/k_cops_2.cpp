@@ -45,7 +45,7 @@
  * state IDs into a 1D array, using a 'heads' array to track starting indices.
  */
 void buildTransitions(size_t configCount, int k, int N, const uint8_t* configs, const AdjacencyList& adj,
-                      std::vector<size_t>& outTransitionHeads, std::vector<size_t>& outTransitions) {
+                      std::vector<size_t>& outTransitionHeads, std::vector<size_t>& outTransitions, Allocator* allocator) {
     
     outTransitionHeads.assign(configCount + 1, 0);
     outTransitions.clear();
@@ -53,6 +53,7 @@ void buildTransitions(size_t configCount, int k, int N, const uint8_t* configs, 
 
     std::vector<size_t> tempMoves;
     tempMoves.reserve(1024); 
+    size_t peakTempMovesCapacity = 0;
 
     std::cout << "Building transition table for " << configCount << " configurations...\n";
 
@@ -118,9 +119,28 @@ void buildTransitions(size_t configCount, int k, int N, const uint8_t* configs, 
 
         std::sort(tempMoves.begin(), tempMoves.end());
         tempMoves.erase(std::unique(tempMoves.begin(), tempMoves.end()), tempMoves.end());
+
+        peakTempMovesCapacity = std::max(peakTempMovesCapacity, tempMoves.capacity());
         
         outTransitions.insert(outTransitions.end(), tempMoves.begin(), tempMoves.end());
         outTransitionHeads[cId + 1] = outTransitions.size();
+    }
+
+    // --- NEW: Register the externally managed vector allocations ---
+    if (allocator != nullptr) {
+        outTransitionHeads.shrink_to_fit();
+        outTransitions.shrink_to_fit();
+
+        size_t headsBytes = outTransitionHeads.size() * sizeof(size_t);
+        size_t transitionsBytes = outTransitions.size() * sizeof(size_t);
+        size_t peakTempBytes = peakTempMovesCapacity * sizeof(size_t);
+        
+        allocator->trackExternal("outTransitionHeads", headsBytes, outTransitionHeads.data());
+        allocator->trackExternal("outTransitions", transitionsBytes, outTransitions.data());
+        
+        // Pass nullptr for the address, since tempMoves will be destroyed right after this function ends,
+        // but we still want its peak footprint etched into the allocator's records!
+        allocator->trackExternal("tempMoves (Peak Buffer)", peakTempBytes, nullptr);
     }
 
     std::cout << "Transitions generated. Total edge pointers: " << outTransitions.size() << "\n";
@@ -174,28 +194,25 @@ void solveCopsAndRobbers(Graph* g, int k) {
         return;
     }
 
+    Allocator mem;
+
+    mem.trackExternal("Graph (Adj Matrix)", g->getMemoryFootprint());
+
     // STEP 1 --- Create an adjacency list out of the adjacency matrix for faster iteration
     AdjacencyList adj(g);
+    mem.trackExternal("Adjacency List (CSR)", adj.getMemoryFootprint());
 
     // STEP 2 --- Generate all unique, sorted cop configurations
     size_t configCount;
-    uint8_t* configs = generateCopConfigs(k, N, &configCount);
+    uint8_t* configs = generateCopConfigs(k, N, &configCount, &mem);
     if (!configs || configCount == 0) return;
-
-    // Manual tracking for non-Allocator components
-    double configsMB = static_cast<double>(configCount * k * sizeof(uint8_t)) / (1024.0 * 1024.0);
-    std::cout << "[Memory] configs array: " << std::fixed << std::setprecision(2) << configsMB << " MB\n";
 
     // STEP 3 --- Pre-calculate all team transitions (CSR Format)
     std::vector<size_t> transitionHeads;
     std::vector<size_t> transitions;
-    buildTransitions(configCount, k, N, configs, adj, transitionHeads, transitions);
-
-    double transitionsMB = static_cast<double>((transitionHeads.capacity() + transitions.capacity()) * sizeof(size_t)) / (1024.0 * 1024.0);
-    std::cout << "[Memory] transitions CSR: " << std::fixed << std::setprecision(2) << transitionsMB << " MB\n";
+    buildTransitions(configCount, k, N, configs, adj, transitionHeads, transitions, &mem);
 
     // STEP 4 --- Allocate flat arrays for game states
-    Allocator mem;
     uint8_t* copTurnWins = nullptr;
     uint8_t* robberTurnWins = nullptr;
     
@@ -328,10 +345,6 @@ void solveCopsAndRobbers(Graph* g, int k) {
         std::cout << "RESULT: LOSS. " << k << " Cop(s) CANNOT guarantee a win.\n";
         std::cout << "(The Robber has a strategy to survive indefinitely against any start).\n";
     }
-
-    // --- CLEANUP ---
-    delete[] configs;
-    // Allocator automatically handles state array destruction!
 }
 
 // --- ENTRY POINT ---

@@ -38,6 +38,9 @@ class AdjacencyList {
         // Adds the edge (u, v) to the internal array   
         void addEdge(uint8_t u, uint8_t v);
 
+        // Returns the total memory footprint of the adjacency list in bytes
+        size_t getMemoryFootprint() const;
+
     private:
 
         /*   Instance Variables    */

@@ -22,6 +22,8 @@ class Allocator {
             uint64_t sizeBytes;
             void* address;
             bool isPending;
+            bool isExternal; 
+            int blockId; // Groups internally managed allocations by their parent arena
         };
 
         std::vector<AllocRequest> pendingRequests;
@@ -32,6 +34,7 @@ class Allocator {
 
         uint64_t totalAllocatedBytes;
         uint64_t totalPendingBytes;
+        uint64_t totalExternalBytes; // Tracks unmanaged memory separately
 
     public:
 
@@ -49,9 +52,13 @@ class Allocator {
             
             pendingRequests.push_back({reinterpret_cast<void**>(targetPtr), sizeBytes, align, name});
             
-            trackingMap[name] = {sizeBytes, nullptr, true};
+            // blockId is initialized to -1 while pending
+            trackingMap[name] = {sizeBytes, nullptr, true, false, -1};
             totalPendingBytes += sizeBytes;
         }
+
+        // Registers an allocation not owned by this allocator purely for profiling
+        void trackExternal(const std::string& name, size_t sizeBytes, void* address = nullptr);
 
         // Commits the allocations, building a single contiguous memory block
         void allocate();

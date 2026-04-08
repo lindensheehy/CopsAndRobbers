@@ -76,3 +76,7 @@ void AdjacencyList::addEdge(uint8_t u, uint8_t v) {
     return;
 
 }
+
+size_t AdjacencyList::getMemoryFootprint() const {
+    return sizeof(*this) + (this->nodeCount * this->maxDegree * sizeof(uint8_t));
+}

@@ -95,3 +95,7 @@ bool Graph::getEdge(int node1, int node2) const {
     return this->g[node1 * this->nodeCount + node2];
 
 }
+
+size_t Graph::getMemoryFootprint() const {
+    return sizeof(*this) + (this->nodeCount * this->nodeCount * sizeof(bool));
+}

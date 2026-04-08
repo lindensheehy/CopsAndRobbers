@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 
 class Graph {
 
@@ -27,6 +28,9 @@ class Graph {
 
         // Returns true if an edge exists between the two passed nodes
         bool getEdge(int node1, int node2) const;
+
+        // Returns the total memory footprint of the graph in bytes
+        size_t getMemoryFootprint() const;
 
     private:
 

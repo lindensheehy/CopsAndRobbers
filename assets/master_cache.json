@@ -23,7 +23,8 @@
     },
     "k_cops_2.exe": {
         "Adjacency Matrix": "assets\\matrices\\scotlandyard-yellow.txt",
-        "Number of Cops": "3"
+        "Number of Cops": "3",
+        "Graph File": "..\\assets\\matrices\\scotlandyard-all.txt"
     },
     "k_cops_3.exe": {
         "Adjacency Matrix": "assets\\matrices\\scotlandyard-yellow.txt",
@@ -44,5 +45,9 @@
     "k_cops_tickets.exe": {
         "Adjacency Matrix": "assets\\matrices\\scotlandyard-all.txt",
         "Max Number of Tickets": "1"
+    },
+    "visualizer.py": {
+        "Adjacency Matrix": "assets\\matrices\\scotlandyard-red.txt",
+        "Positions (Optional)": "assets\\positions\\scotlandyard.txt"
     }
 }

@@ -1,0 +1,102 @@
+{
+    "k_cops.exe": {
+        "mtime": 1775662720.063206,
+        "args": [
+            [
+                "Graph File",
+                "*.txt"
+            ],
+            [
+                "Number of Cops",
+                "int"
+            ]
+        ]
+    },
+    "k_cops_2.exe": {
+        "mtime": 1775665724.015495,
+        "args": [
+            [
+                "Graph File",
+                "*.txt"
+            ],
+            [
+                "Number of Cops",
+                "int"
+            ]
+        ]
+    },
+    "k_cops_3.exe": {
+        "mtime": 1775662720.063206,
+        "args": [
+            [
+                "Graph File",
+                "*.txt"
+            ],
+            [
+                "Number of Cops",
+                "int"
+            ]
+        ]
+    },
+    "k_cops_4.exe": {
+        "mtime": 1775662720.063206,
+        "args": [
+            [
+                "Graph File",
+                "*.txt"
+            ],
+            [
+                "Number of Cops",
+                "int"
+            ]
+        ]
+    },
+    "k_cops_5.exe": {
+        "mtime": 1775662720.0712047,
+        "args": [
+            [
+                "Graph File",
+                "*.txt"
+            ],
+            [
+                "Number of Cops",
+                "int"
+            ]
+        ]
+    },
+    "k_cops_alternating.exe": {
+        "mtime": 1775662720.0712047,
+        "args": [
+            [
+                "Graph File",
+                "*.txt"
+            ],
+            [
+                "Number of Cops",
+                "int"
+            ]
+        ]
+    },
+    "k_cops_rounds.exe": {
+        "mtime": 1775662720.0712047,
+        "args": [
+            [
+                "Graph File",
+                "*.txt"
+            ],
+            [
+                "Number of Cops",
+                "int"
+            ]
+        ]
+    },
+    "k_cops_tickets.exe": {
+        "mtime": 1775662720.0712047,
+        "args": [
+            [
+                "Max Tickets",
+                "int"
+            ]
+        ]
+    }
+}
