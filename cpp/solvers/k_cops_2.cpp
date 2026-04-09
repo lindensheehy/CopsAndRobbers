@@ -30,6 +30,7 @@
 #include "AdjacencyList.h"
 #include "copconfig.h"
 #include "Allocator.h"
+#include "Profiler.h"
 #include <iostream>
 #include <vector>
 #include <algorithm>
@@ -126,7 +127,7 @@ void buildTransitions(size_t configCount, int k, int N, const uint8_t* configs, 
         outTransitionHeads[cId + 1] = outTransitions.size();
     }
 
-    // --- NEW: Register the externally managed vector allocations ---
+    // --- Register the externally managed vector allocations ---
     if (allocator != nullptr) {
         outTransitionHeads.shrink_to_fit();
         outTransitions.shrink_to_fit();
@@ -138,8 +139,7 @@ void buildTransitions(size_t configCount, int k, int N, const uint8_t* configs, 
         allocator->trackExternal("outTransitionHeads", headsBytes, outTransitionHeads.data());
         allocator->trackExternal("outTransitions", transitionsBytes, outTransitions.data());
         
-        // Pass nullptr for the address, since tempMoves will be destroyed right after this function ends,
-        // but we still want its peak footprint etched into the allocator's records!
+        // Pass nullptr for the address, since tempMoves will be destroyed right after this function ends
         allocator->trackExternal("tempMoves (Peak Buffer)", peakTempBytes, nullptr);
     }
 
@@ -186,7 +186,7 @@ void initializeCaptures(size_t configCount, int k, int N, const uint8_t* configs
 
 // --- MAIN ALGORITHM ---
 
-void solveCopsAndRobbers(Graph* g, int k) {
+void solveCopsAndRobbers(Graph* g, int k, Profiler* p) {
 
     int N = g->nodeCount;
     if (N == 0) {
@@ -199,20 +199,24 @@ void solveCopsAndRobbers(Graph* g, int k) {
     mem.trackExternal("Graph (Adj Matrix)", g->getMemoryFootprint());
 
     // STEP 1 --- Create an adjacency list out of the adjacency matrix for faster iteration
+    p->enter("Build Adjacency List");
     AdjacencyList adj(g);
     mem.trackExternal("Adjacency List (CSR)", adj.getMemoryFootprint());
 
     // STEP 2 --- Generate all unique, sorted cop configurations
+    p->enter("Generate Cop Configs");
     size_t configCount;
     uint8_t* configs = generateCopConfigs(k, N, &configCount, &mem);
     if (!configs || configCount == 0) return;
 
     // STEP 3 --- Pre-calculate all team transitions (CSR Format)
+    p->enter("Build Transitions");
     std::vector<size_t> transitionHeads;
     std::vector<size_t> transitions;
     buildTransitions(configCount, k, N, configs, adj, transitionHeads, transitions, &mem);
 
     // STEP 4 --- Allocate flat arrays for game states
+    p->enter("Memory Allocation");
     uint8_t* copTurnWins = nullptr;
     uint8_t* robberTurnWins = nullptr;
     
@@ -222,14 +226,17 @@ void solveCopsAndRobbers(Graph* g, int k) {
 
     mem.requestAlloc("Cop Turn Wins", numStates, &copTurnWins);
     mem.requestAlloc("Robber Turn Wins", numStates, &robberTurnWins);
-    
     mem.allocate();
+
+    p->enter("Print Memory Report");
     mem.print();
 
     // STEP 5 --- INITIALIZATION
+    p->enter("Initialize Captures");
     initializeCaptures(configCount, k, N, configs, copTurnWins, robberTurnWins);
 
     // STEP 6 --- MAIN BACKWARD INDUCTION LOOP
+    p->enter("Backward Induction (Main Loop)");
     {
         int passes = 0;
         int newWinsThisPass;
@@ -237,7 +244,7 @@ void solveCopsAndRobbers(Graph* g, int k) {
         int r;
         size_t cId;
         size_t stateId;
-        size_t baseStateId; // Added to remove multiplication in the robber loop
+        size_t baseStateId; 
         bool canEscape;
         uint8_t* rEdges;
         int eIdx;
@@ -253,9 +260,8 @@ void solveCopsAndRobbers(Graph* g, int k) {
                 copTransStart = transitionHeads[cId];
                 copTransEnd = transitionHeads[cId + 1];
                 stateId = cId * N;
-                baseStateId = stateId; // Cache the base ID (cId * N)
+                baseStateId = stateId; 
                 
-                // 1. Initialize pointer to the 0th node's edges outside the 'r' loop
                 rEdges = adj.getEdges(0); 
 
                 for (r = 0; r < N; ++r) {
@@ -264,13 +270,10 @@ void solveCopsAndRobbers(Graph* g, int k) {
                     if (!robberTurnWins[stateId]) {
                         canEscape = false;
 
-                        // 1. Can the robber safely stay in place?
                         if (!copTurnWins[stateId]) {
                             canEscape = true;
                         } else {
-                            // 2. Can the robber move to a safe neighbor?
                             for (eIdx = 0; rEdges[eIdx] != 255; eIdx++) {
-                                // 3. Replaced (cId * N) with our cached baseStateId
                                 nextStateId = baseStateId + rEdges[eIdx]; 
                                 if (!copTurnWins[nextStateId]) {
                                     canEscape = true;
@@ -297,25 +300,21 @@ void solveCopsAndRobbers(Graph* g, int k) {
                                 break; 
                             }
                         }
-
                     }
                 
                     stateId++;
-                    
-                    // 4. Advance the edge pointer by exactly one stride for the next 'r'
                     rEdges += adj.maxDegree; 
-
                 }
             }
 
             std::cout << "Pass " << passes << ": Found " << newWinsThisPass << " new winning states.\n";
 
             if (newWinsThisPass == 0) break;
-
         }
     }
 
     // STEP 7 --- FINAL VERDICT ---
+    p->enter("Final Verdict Evaluation");
     std::cout << "\n--- FINAL VERDICT ---\n";
     int winningStartConfigId = -1;
 
@@ -333,6 +332,8 @@ void solveCopsAndRobbers(Graph* g, int k) {
             break;
         }
     }
+
+    p->stop(); // Stops the tracker before we execute the final IO print statements
 
     if (winningStartConfigId != -1) {
         std::cout << "RESULT: WIN. " << k << " Cop(s) CAN win this graph.\n";
@@ -356,12 +357,17 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    Profiler p; // Fire up the profiler at the absolute start
+    
+    p.enter("Load Graph File");
     const char* filename = argv[1];
     int k = std::stoi(argv[2]);
 
     Graph g(filename);
     
-    solveCopsAndRobbers(&g, k);
+    solveCopsAndRobbers(&g, k, &p);
+
+    p.print(); // Dump the timing metrics right before exiting
 
     return 0;
 }
