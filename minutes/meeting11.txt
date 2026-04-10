@@ -1,0 +1,23 @@
+there is either 2 cops and 2 bobies (fakes) or 2 cops and 1 bobby, and bobbies (fakes that you just use alongside the regular cops - they dont need tickets!)
+
+there is a fary but we will not do that we got more than enough connections (we might but not rn)
+
+there should be eventually an option to FORCE cops to move (just delete connection of node to itself)
+
+the code for algorithm should be generalized more - structured the CODE ITSELF so its easy to know which version is which, 
+and organize dp tables well.
+Generalize ox graph. - note for Linden and Valeriy (figure out how to clean up the pipeline because the debt is INSANE)
+
+The easiest thing to program is one over k visible and resources is to be done research - still remaining 
+
+there are rules where robber starts AT RANDOM! Same thing for the detectives. interesting to note down. 
+
+We also talk about legal part. There are studies of games so us solving the game should not be problem,
+
+but its important to know what is copyrighted from scotland yard - we can not take pictures of the rules and rewrite it! Very important
+
+in research paper we cant put the board but we can put the graph.
+
+next meeting. April 24th - two weeks from now. 1pm. but in case - email changes will be emailed
+
+
