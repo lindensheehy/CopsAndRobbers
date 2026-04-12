@@ -21,171 +21,27 @@
  * pointer striding (`rEdges += adj.maxDegree`) to evaluate the robber's moves 
  * without redundant multiplication or array indexing.
  * * PERFORMANCE METRICS (on scotlandyard-yellow with 3 cops)
- * - Memory -> 1.82 GB 
- * - Time -> 150 seconds
+ * - Memory -> 1.76 GB 
+ * - Time -> 85 seconds
  * ============================================================================
  */
 
 #include "Graph.h"
 #include "AdjacencyList.h"
-#include "copconfig.h"
+#include "AuxGraph.h"
 #include "Allocator.h"
 #include "Profiler.h"
 #include <iostream>
 #include <vector>
-#include <algorithm>
-#include <cstring>
-#include <cstdint>
-#include <iomanip>
+#include <string>
 
-// --- PROCEDURAL HELPERS ---
-
-/**
- * Builds a Compressed Sparse Row (CSR) representation of all possible team moves.
- * Determines every valid transition for every configuration and packs the target 
- * state IDs into a 1D array, using a 'heads' array to track starting indices.
- */
-void buildTransitions(size_t configCount, int k, int N, const uint8_t* configs, const AdjacencyList& adj,
-                      std::vector<size_t>& outTransitionHeads, std::vector<size_t>& outTransitions, Allocator* allocator) {
-    
-    outTransitionHeads.assign(configCount + 1, 0);
-    outTransitions.clear();
-    outTransitions.reserve(configCount * 8); 
-
-    std::vector<size_t> tempMoves;
-    tempMoves.reserve(1024); 
-    size_t peakTempMovesCapacity = 0;
-
-    std::cout << "Building transition table for " << configCount << " configurations...\n";
-
-    uint8_t options[MAX_COPS][256];
-    int optionCount[MAX_COPS];
-    int odometer[MAX_COPS];
-    uint8_t moveConfig[MAX_COPS];
-
-    for (size_t cId = 0; cId < configCount; cId++) {
-        tempMoves.clear(); 
-        const uint8_t* currentCops = &configs[cId * k];
-        
-        for (int i = 0; i < k; i++) {
-            uint8_t u = currentCops[i];
-            options[i][0] = u; 
-            int count = 1;
-            
-            uint8_t* edges = adj.getEdges(u);
-            int eIdx = 0;
-            while (edges[eIdx] != 255) {
-                options[i][count++] = edges[eIdx++];
-            }
-            optionCount[i] = count;
-        }
-
-        memset(odometer, 0, MAX_COPS * sizeof(int));
-        
-        while (true) {
-            for (int i = 0; i < k; ++i) {
-                moveConfig[i] = options[i][odometer[i]];
-            }
-            
-            std::sort(moveConfig, moveConfig + k);
-            size_t nextId = static_cast<size_t>(-1); 
-            size_t left = 0;
-            size_t right = configCount - 1;
-            while (left <= right) {
-                size_t mid = left + (right - left) / 2;
-                int cmp = std::memcmp(&configs[mid * k], moveConfig, k);
-                if (cmp == 0) {
-                    nextId = mid;
-                    break;
-                }
-                if (cmp < 0) {
-                    left = mid + 1;
-                } else {
-                    right = mid - 1;
-                }
-            }
-            
-            // Pre-multiplied by N for optimization
-            tempMoves.push_back(nextId * N);
-            
-            int p = k - 1;
-            while (p >= 0) {
-                odometer[p]++;
-                if (odometer[p] < optionCount[p]) break;
-                odometer[p] = 0;
-                p--;
-            }
-            if (p < 0) break;
-        }
-
-        std::sort(tempMoves.begin(), tempMoves.end());
-        tempMoves.erase(std::unique(tempMoves.begin(), tempMoves.end()), tempMoves.end());
-
-        peakTempMovesCapacity = std::max(peakTempMovesCapacity, tempMoves.capacity());
-        
-        outTransitions.insert(outTransitions.end(), tempMoves.begin(), tempMoves.end());
-        outTransitionHeads[cId + 1] = outTransitions.size();
-    }
-
-    // --- Register the externally managed vector allocations ---
-    if (allocator != nullptr) {
-        outTransitionHeads.shrink_to_fit();
-        outTransitions.shrink_to_fit();
-
-        size_t headsBytes = outTransitionHeads.size() * sizeof(size_t);
-        size_t transitionsBytes = outTransitions.size() * sizeof(size_t);
-        size_t peakTempBytes = peakTempMovesCapacity * sizeof(size_t);
-        
-        allocator->trackExternal("outTransitionHeads", headsBytes, outTransitionHeads.data());
-        allocator->trackExternal("outTransitions", transitionsBytes, outTransitions.data());
-        
-        // Pass nullptr for the address, since tempMoves will be destroyed right after this function ends
-        allocator->trackExternal("tempMoves (Peak Buffer)", peakTempBytes, nullptr);
-    }
-
-    std::cout << "Transitions generated. Total edge pointers: " << outTransitions.size() << "\n";
-}
-
-/**
- * Scans through all configurations and robber positions to identify states
- * where the robber starts on a node already occupied by a cop, marking them
- * as instant wins for the cops.
- */
-void initializeCaptures(size_t configCount, int k, int N, const uint8_t* configs, 
-                        uint8_t* copTurnWins, uint8_t* robberTurnWins) {
-    int initialWins = 0;
-    const uint8_t* currentCops;
-    size_t stateId;
-    bool caught;
-    
-    for (size_t cId = 0; cId < configCount; ++cId) {
-        currentCops = &configs[cId * k];
-        
-        for (int r = 0; r < N; ++r) {
-            stateId = cId * N + r;
-            
-            caught = false;
-            for (int i = 0; i < k; ++i) {
-                if (currentCops[i] == r) {
-                    caught = true;
-                    break;
-                }
-            }
-            
-            if (caught) {
-                copTurnWins[stateId] = 1;
-                robberTurnWins[stateId] = 1;
-                initialWins++;
-            }
-        }
-    }
-
-    std::cout << "Initialized " << initialWins << " winning states (Captures).\n";
-    std::cout << "Starting Backward Induction Loop...\n";
-}
+// --- DP STATE DEFINITION ---
+struct DataItem {
+    uint8_t copTurnWins : 1;
+    uint8_t robberTurnWins : 1;
+};
 
 // --- MAIN ALGORITHM ---
-
 void solveCopsAndRobbers(Graph* g, int k, Profiler* p) {
 
     int N = g->nodeCount;
@@ -195,47 +51,44 @@ void solveCopsAndRobbers(Graph* g, int k, Profiler* p) {
     }
 
     Allocator mem;
-
     mem.trackExternal("Graph (Adj Matrix)", g->getMemoryFootprint());
 
-    // STEP 1 --- Create an adjacency list out of the adjacency matrix for faster iteration
+    // STEP 1 --- Adjacency List
     p->enter("Build Adjacency List");
     AdjacencyList adj(g);
     mem.trackExternal("Adjacency List (CSR)", adj.getMemoryFootprint());
 
-    // STEP 2 --- Generate all unique, sorted cop configurations
-    p->enter("Generate Cop Configs");
-    size_t configCount;
-    uint8_t* configs = generateCopConfigs(k, N, &configCount, &mem);
-    if (!configs || configCount == 0) return;
+    // STEP 2 --- Build Aux Graph & Queue DP Allocation
+    p->enter("Build Aux Graph");
+    AuxGraph<DataItem> aux(k, N, &adj, &mem);
+    if (aux.configCount == 0) return;
 
-    // STEP 3 --- Pre-calculate all team transitions (CSR Format)
-    p->enter("Build Transitions");
-    std::vector<size_t> transitionHeads;
-    std::vector<size_t> transitions;
-    buildTransitions(configCount, k, N, configs, adj, transitionHeads, transitions, &mem);
-
-    // STEP 4 --- Allocate flat arrays for game states
-    p->enter("Memory Allocation");
-    uint8_t* copTurnWins = nullptr;
-    uint8_t* robberTurnWins = nullptr;
-    
-    size_t numStates = configCount * N;
     std::cout << "Generating states for " << k << " cops...\n";
-    std::cout << "Total States: " << numStates << "\n";
+    std::cout << "Total States: " << aux.numStates << "\n";
 
-    mem.requestAlloc("Cop Turn Wins", numStates, &copTurnWins);
-    mem.requestAlloc("Robber Turn Wins", numStates, &robberTurnWins);
+    // Commit allocations (Populates aux.states natively)
     mem.allocate();
 
     p->enter("Print Memory Report");
     mem.print();
 
-    // STEP 5 --- INITIALIZATION
+    // STEP 3 --- INITIALIZATION
     p->enter("Initialize Captures");
-    initializeCaptures(configCount, k, N, configs, copTurnWins, robberTurnWins);
+    int initialWins = 0;
+    for (size_t cId = 0; cId < aux.configCount; ++cId) {
+        for (int r = 0; r < N; ++r) {
+            if (aux.isInstantCatch(cId, r)) {
+                size_t stateId = aux.getStateId(cId, r);
+                aux.states[stateId].copTurnWins = 1;
+                aux.states[stateId].robberTurnWins = 1;
+                initialWins++;
+            }
+        }
+    }
+    std::cout << "Initialized " << initialWins << " winning states (Captures).\n";
+    std::cout << "Starting Backward Induction Loop...\n";
 
-    // STEP 6 --- MAIN BACKWARD INDUCTION LOOP
+    // STEP 4 --- MAIN BACKWARD INDUCTION LOOP
     p->enter("Backward Induction (Main Loop)");
     {
         int passes = 0;
@@ -255,11 +108,10 @@ void solveCopsAndRobbers(Graph* g, int k, Profiler* p) {
             passes++;
             newWinsThisPass = 0;
 
-            for (cId = 0; cId < configCount; ++cId) {
+            for (cId = 0; cId < aux.configCount; ++cId) {
                 
-                copTransStart = transitionHeads[cId];
-                copTransEnd = transitionHeads[cId + 1];
-                stateId = cId * N;
+                aux.getCopTransitions(cId, copTransStart, copTransEnd);
+                stateId = aux.getStateId(cId, 0);
                 baseStateId = stateId; 
                 
                 rEdges = adj.getEdges(0); 
@@ -267,15 +119,15 @@ void solveCopsAndRobbers(Graph* g, int k, Profiler* p) {
                 for (r = 0; r < N; ++r) {
 
                     // --- RIGHT SIDE: Robber's Turn ---
-                    if (!robberTurnWins[stateId]) {
+                    if (!aux.states[stateId].robberTurnWins) {
                         canEscape = false;
 
-                        if (!copTurnWins[stateId]) {
+                        if (!aux.states[stateId].copTurnWins) {
                             canEscape = true;
                         } else {
                             for (eIdx = 0; rEdges[eIdx] != 255; eIdx++) {
                                 nextStateId = baseStateId + rEdges[eIdx]; 
-                                if (!copTurnWins[nextStateId]) {
+                                if (!aux.states[nextStateId].copTurnWins) {
                                     canEscape = true;
                                     break; 
                                 }
@@ -283,19 +135,18 @@ void solveCopsAndRobbers(Graph* g, int k, Profiler* p) {
                         }
 
                         if (!canEscape) {
-                            robberTurnWins[stateId] = 1;
+                            aux.states[stateId].robberTurnWins = 1;
                             newWinsThisPass++;
                         }
                     }
 
                     // --- LEFT SIDE: Cop's Turn ---
-                    if (!copTurnWins[stateId]) {
-                        
+                    if (!aux.states[stateId].copTurnWins) {
                         for (i = copTransStart; i < copTransEnd; ++i) {
-                            nextStateId = transitions[i] + r;
+                            nextStateId = aux.transitions[i] + r;
                             
-                            if (robberTurnWins[nextStateId]) {
-                                copTurnWins[stateId] = 1;
+                            if (aux.states[nextStateId].robberTurnWins) {
+                                aux.states[stateId].copTurnWins = 1;
                                 newWinsThisPass++;
                                 break; 
                             }
@@ -313,16 +164,16 @@ void solveCopsAndRobbers(Graph* g, int k, Profiler* p) {
         }
     }
 
-    // STEP 7 --- FINAL VERDICT ---
+    // STEP 5 --- FINAL VERDICT ---
     p->enter("Final Verdict Evaluation");
     std::cout << "\n--- FINAL VERDICT ---\n";
     int winningStartConfigId = -1;
 
-    for (size_t cId = 0; cId < configCount; ++cId) {
+    for (size_t cId = 0; cId < aux.configCount; ++cId) {
         bool universalWin = true;
         for (int rStart = 0; rStart < N; ++rStart) {
-            size_t stateId = cId * N + rStart;
-            if (!copTurnWins[stateId]) {
+            size_t stateId = aux.getStateId(cId, rStart);
+            if (!aux.states[stateId].copTurnWins) {
                 universalWin = false;
                 break;
             }
@@ -333,13 +184,13 @@ void solveCopsAndRobbers(Graph* g, int k, Profiler* p) {
         }
     }
 
-    p->stop(); // Stops the tracker before we execute the final IO print statements
+    p->stop(); 
 
     if (winningStartConfigId != -1) {
         std::cout << "RESULT: WIN. " << k << " Cop(s) CAN win this graph.\n";
         std::cout << "Optimal Cop Start Positions: (";
         for (int i = 0; i < k; ++i) {
-            std::cout << (int)configs[winningStartConfigId * k + i] << (i == k - 1 ? "" : ", ");
+            std::cout << (int)aux.configs[winningStartConfigId * k + i] << (i == k - 1 ? "" : ", ");
         }
         std::cout << ")\n";
     } else {
@@ -357,7 +208,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    Profiler p; // Fire up the profiler at the absolute start
+    Profiler p; 
     
     p.enter("Load Graph File");
     const char* filename = argv[1];
@@ -367,7 +218,7 @@ int main(int argc, char* argv[]) {
     
     solveCopsAndRobbers(&g, k, &p);
 
-    p.print(); // Dump the timing metrics right before exiting
+    p.print(); 
 
     return 0;
 }

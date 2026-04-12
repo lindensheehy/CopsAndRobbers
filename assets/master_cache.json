@@ -22,13 +22,14 @@
         "Number of Cops": "3"
     },
     "k_cops_2.exe": {
-        "Adjacency Matrix": "assets\\matrices\\scotlandyard-yellow.txt",
+        "Adjacency Matrix": "assets\\matrices\\scotlandyard-all.txt",
         "Number of Cops": "3",
         "Graph File": "..\\assets\\matrices\\scotlandyard-all.txt"
     },
     "k_cops_3.exe": {
-        "Adjacency Matrix": "assets\\matrices\\scotlandyard-yellow.txt",
-        "Number of Cops": "3"
+        "Adjacency Matrix": "assets\\matrices\\scotlandyard-all.txt",
+        "Number of Cops": "3",
+        "Graph File": "..\\assets\\matrices\\scotlandyard-all.txt"
     },
     "k_cops_5.exe": {
         "Adjacency Matrix": "assets\\matrices\\scotlandyard-yellow.txt",
