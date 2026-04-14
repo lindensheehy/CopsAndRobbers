@@ -4,6 +4,30 @@
 
 AdjacencyList::AdjacencyList(Graph* g) {
 
+    this->constructFrom(g);
+
+    return;
+
+}
+
+AdjacencyList::AdjacencyList(int nodeCount, int maxDegree) : nodeCount(nodeCount), maxDegree(maxDegree) {
+    
+    int totalSize = nodeCount * maxDegree;
+    this->edges = new uint8_t[totalSize];
+
+    // Initialize the entire memory block to 255 (terminator)
+    std::memset(this->edges, 255, totalSize);
+
+    return;
+
+}
+
+AdjacencyList::~AdjacencyList() {
+    delete[] this->edges;
+}
+
+void AdjacencyList::constructFrom(Graph* g) {
+
     nodeCount = g->nodeCount;
 
     // Step 1: Determine maxDegree
@@ -39,22 +63,6 @@ AdjacencyList::AdjacencyList(Graph* g) {
 
     return;
 
-}
-
-AdjacencyList::AdjacencyList(int nodeCount, int maxDegree) : nodeCount(nodeCount), maxDegree(maxDegree) {
-    
-    int totalSize = nodeCount * maxDegree;
-    this->edges = new uint8_t[totalSize];
-
-    // Initialize the entire memory block to 255 (terminator)
-    std::memset(this->edges, 255, totalSize);
-
-    return;
-
-}
-
-AdjacencyList::~AdjacencyList() {
-    delete[] this->edges;
 }
 
 uint8_t* AdjacencyList::getEdges(int node) const {

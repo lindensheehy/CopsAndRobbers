@@ -28,36 +28,51 @@ public:
 
     const AdjacencyList* adj;
 
+    AuxGraph() : k(0), N(0), configCount(0), numStates(0), configs(nullptr), 
+          transitionHeads(nullptr), states(nullptr), adj(nullptr), mem(nullptr) {}
+
     // Constructor: Generates configs, queues memory, and builds transitions
-    AuxGraph(int k, int N, const AdjacencyList* adj, Allocator* mem) 
+    AuxGraph(int k, const AdjacencyList* adj, Allocator* mem) 
         : k(k), N(N), configCount(0), numStates(0), configs(nullptr), 
           transitionHeads(nullptr), states(nullptr), adj(adj), mem(mem) {
-        
-        // 1. Generate Configurations
-        this->generateCopConfigs();
-        
-        if (this->configCount == 0) return;
-        this->numStates = this->configCount * N;
-
-        // 2. Queue the AoS flat array in the allocator
-        if (this->numStates > 0 && this->mem != nullptr) {
-            this->mem->requestAlloc<StateData>("AuxGraph States (AoS)", this->numStates, &this->states);
-        }
-
-        // 3. Build the Transition Table
-        this->createTransitions();
+        this->constructFrom(k, adj, mem);
     }
 
     // Destructor: Cleans up the raw transitionHeads array
     ~AuxGraph() {
         delete[] this->transitionHeads;
     }
+    
+
+    // Deferred constructor
+    void constructFrom(int k, const AdjacencyList* adj, Allocator* mem) {
+
+        if (mem == nullptr || adj == nullptr) return;
+
+        this->k = k;
+        this->N = adj->nodeCount;
+        this->adj = adj;
+        this->mem = mem;
+
+        // 1. Generate Configurations
+        this->generateCopConfigs();
+        
+        if (this->configCount == 0) return;
+        this->numStates = this->configCount * N;
+
+        this->mem->requestAlloc<StateData>("AuxGraph Per State Data", this->numStates, &this->states);
+        this->mem->allocate();
+
+        // 3. Build the Transition Table
+        this->createTransitions();
+
+    }
 
     // --- Core Accessors ---
 
     // Maps a cop configuration ID and a robber position to a 1D state ID
-    inline size_t getStateId(size_t cId, int r) const {
-        return cId * N + r;
+    inline StateData* getState(size_t cId, int r) const {
+        return &(this->states[cId * N + r]);
     }
 
     // Fetches the exact transition boundaries for a given cop configuration

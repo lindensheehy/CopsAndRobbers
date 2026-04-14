@@ -20,9 +20,52 @@
  * - Loop Optimization: The backward induction loop caches `cId * N` and utilizes 
  * pointer striding (`rEdges += adj.maxDegree`) to evaluate the robber's moves 
  * without redundant multiplication or array indexing.
- * * PERFORMANCE METRICS (on scotlandyard-yellow with 3 cops)
- * - Memory -> 1.76 GB 
- * - Time -> 85 seconds
+
+EXAMPLE RUN (scotlandyard-all with 3 cops)
+||>>>>>=====-----=====<<<<<     Memory Tracking Report     >>>>>=====-----=====<<<<<
+||
+||   Total Footprint -------------------------=>   1891599148 B / 1803.97 MB /  1.76 GB (100.00%)
+||    -> Managed Internally -------------=>    269326600 B /  256.85 MB /  0.25 GB (14.24%)
+||    -> Tracked Externally -------------=>   1622272548 B / 1547.12 MB /  1.51 GB (85.76%)
+||
+||
+||  ---===<<<>>>===---   Drill Down   ---===<<<>>>===---
+||
+||   Managed Internally ----------------------=>    269326600 B /  256.85 MB /  0.25 GB
+||
+||    -> Arena Block 1 ------------------=>      3999900 B /    3.81 MB /  0.00 GB (0.21%)
+||      -> Cop Configs -------------=>      3999900 B /    3.81 MB /  0.00 GB
+||
+||    -> Arena Block 2 ------------------=>    265326700 B /  253.04 MB /  0.25 GB (14.03%)
+||      -> AuxGraph Per State Data -=>    265326700 B /  253.04 MB /  0.25 GB
+||
+||   Tracked Externally ----------------------=>   1622272548 B / 1547.12 MB /  1.51 GB
+||    -> tempMoves (Peak Buffer) --------=>        65536 B /    0.06 MB /  0.00 GB (0.00%)
+||    -> AuxGraph: Edges ----------------=>   1611538200 B / 1536.88 MB /  1.50 GB (85.19%)
+||    -> AuxGraph: Heads ----------------=>     10666408 B /   10.17 MB /  0.01 GB (0.56%)
+||    -> Graph Adj List -----------------=>         2404 B /    0.00 MB /  0.00 GB (0.00%)
+||
+||>>>>>>>>>>>>>>>>================------------------================<<<<<<<<<<<<<<<<
+
+
+||>>>>>=====-----=====<<<<<     Timing Profiler Report     >>>>>=====-----=====<<<<<
+||
+||   Total App Uptime ---------------=>      68.7470 s (100.00%)
+||    -> Tracked Execution -----=>      68.7470 s (100.00%)
+||
+||
+||  ---===<<<>>>===---   Drill Down   ---===<<<>>>===---
+||
+||  -> Load Graph ---------------=>       0.0003 s (  0.00%)
+||  -> Idle ---------------------=>       0.0471 s (  0.07%)
+||  -> Build Aux Graph ----------=>      21.1096 s ( 30.71%)
+||  -> Initialize Captures ------=>       0.2985 s (  0.43%)
+||  -> Main Loop ----------------=>      47.2891 s ( 68.79%)
+||  -> Final Verdict Evaluation -=>       0.0002 s (  0.00%)
+||  -> Print Memory Report ------=>       0.0023 s (  0.00%)
+||
+||>>>>>>>>>>>>>>>>================------------------================<<<<<<<<<<<<<<<<
+
  * ============================================================================
  */
 
@@ -42,66 +85,91 @@ struct DataItem {
 };
 
 // --- MAIN ALGORITHM ---
-void solveCopsAndRobbers(Graph* g, int k, Profiler* p) {
-
-    int N = g->nodeCount;
-    if (N == 0) {
-        std::cerr << "Error: Graph is empty or failed to load.\n";
-        return;
-    }
+void solveCopsAndRobbers(const char* filename, int k, Profiler* p) {
 
     Allocator mem;
-    mem.trackExternal("Graph (Adj Matrix)", g->getMemoryFootprint());
 
-    // STEP 1 --- Adjacency List
-    p->enter("Build Adjacency List");
-    AdjacencyList adj(g);
-    mem.trackExternal("Adjacency List (CSR)", adj.getMemoryFootprint());
 
-    // STEP 2 --- Build Aux Graph & Queue DP Allocation
-    p->enter("Build Aux Graph");
-    AuxGraph<DataItem> aux(k, N, &adj, &mem);
-    if (aux.configCount == 0) return;
+    /* --- Load Graph File --- */
+    AdjacencyList adj;
+    {
+        p->enter("Load Graph");
 
-    std::cout << "Generating states for " << k << " cops...\n";
-    std::cout << "Total States: " << aux.numStates << "\n";
+        Graph g(filename);
 
-    // Commit allocations (Populates aux.states natively)
-    mem.allocate();
+        if (g.nodeCount == 0) {
+            std::cerr << "Error: Graph is empty or failed to load.\n";
+            return;
+        }
 
-    p->enter("Print Memory Report");
-    mem.print();
+        adj.constructFrom(&g);
+        mem.trackExternal("Graph Adj List", adj.getMemoryFootprint());
 
-    // STEP 3 --- INITIALIZATION
-    p->enter("Initialize Captures");
-    int initialWins = 0;
-    for (size_t cId = 0; cId < aux.configCount; ++cId) {
-        for (int r = 0; r < N; ++r) {
-            if (aux.isInstantCatch(cId, r)) {
-                size_t stateId = aux.getStateId(cId, r);
-                aux.states[stateId].copTurnWins = 1;
-                aux.states[stateId].robberTurnWins = 1;
-                initialWins++;
+        p->enter("Idle");
+    }
+
+
+    /* --- Build Aux Graph --- */
+    AuxGraph<DataItem> aux;
+    {
+        p->enter("Build Aux Graph");
+
+        aux.constructFrom(k, &adj, &mem);
+        if (aux.configCount == 0) {
+            std::cerr << "Error: Unable to generate aux graph.\n";
+            return;
+        }
+
+        p->enter("Idle");
+    }
+
+
+    /* --- Initialize Captures --- */
+    {
+        p->enter("Initialize Captures");
+
+        int initialWins = 0;
+        DataItem* state;
+        for (size_t cId = 0; cId < aux.configCount; ++cId) {
+            for (int r = 0; r < adj.nodeCount; ++r) {
+
+                if (aux.isInstantCatch(cId, r)) {
+                    state = aux.getState(cId, r);
+                    state->copTurnWins = 1;
+                    state->robberTurnWins = 1;
+                    initialWins++;
+                }
+
             }
         }
-    }
-    std::cout << "Initialized " << initialWins << " winning states (Captures).\n";
-    std::cout << "Starting Backward Induction Loop...\n";
 
-    // STEP 4 --- MAIN BACKWARD INDUCTION LOOP
-    p->enter("Backward Induction (Main Loop)");
+        std::cout << "Initialized " << initialWins << " winning states (Captures).\n";
+
+        p->enter("Idle");
+    }
+
+
+    /* --- Main Loop --- */
+    int winningStartConfigId = -1;
+    int captureRounds = -1;
     {
+        p->enter("Main Loop");
+
+        std::cout << "Starting Backward Induction Loop...\n";
+
+        // Loop variables
         int passes = 0;
         int newWinsThisPass;
         size_t copTransStart; size_t copTransEnd;
-        int r;
-        size_t cId;
-        size_t stateId;
-        size_t baseStateId; 
-        bool canEscape;
+        DataItem* state;
+        DataItem* nextState;
         uint8_t* rEdges;
-        int eIdx;
-        size_t nextStateId;
+        bool canEscape;
+        bool universalWinForCId;
+
+        // Iterator variables
+        size_t cId;
+        int r;
         size_t i;
 
         while (true) {
@@ -111,96 +179,105 @@ void solveCopsAndRobbers(Graph* g, int k, Profiler* p) {
             for (cId = 0; cId < aux.configCount; ++cId) {
                 
                 aux.getCopTransitions(cId, copTransStart, copTransEnd);
-                stateId = aux.getStateId(cId, 0);
-                baseStateId = stateId; 
+                universalWinForCId = true;
                 
-                rEdges = adj.getEdges(0); 
-
-                for (r = 0; r < N; ++r) {
+                for (r = 0; r < adj.nodeCount; ++r) {
+                    
+                    state = aux.getState(cId, r);
+                    rEdges = adj.getEdges(r);
 
                     // --- RIGHT SIDE: Robber's Turn ---
-                    if (!aux.states[stateId].robberTurnWins) {
-                        canEscape = false;
+                    if (!state->robberTurnWins && state->copTurnWins) {
 
-                        if (!aux.states[stateId].copTurnWins) {
-                            canEscape = true;
-                        } else {
-                            for (eIdx = 0; rEdges[eIdx] != 255; eIdx++) {
-                                nextStateId = baseStateId + rEdges[eIdx]; 
-                                if (!aux.states[nextStateId].copTurnWins) {
-                                    canEscape = true;
-                                    break; 
-                                }
+                        canEscape = false;
+                        for (i = 0; rEdges[i] != 255; i++) {
+                            nextState = aux.getState(cId, rEdges[i]);
+                            if (!nextState->copTurnWins) {
+                                canEscape = true;
+                                break; 
                             }
                         }
 
                         if (!canEscape) {
-                            aux.states[stateId].robberTurnWins = 1;
+                            state->robberTurnWins = 1;
                             newWinsThisPass++;
                         }
                     }
 
                     // --- LEFT SIDE: Cop's Turn ---
-                    if (!aux.states[stateId].copTurnWins) {
+                    if (!state->copTurnWins) {
                         for (i = copTransStart; i < copTransEnd; ++i) {
-                            nextStateId = aux.transitions[i] + r;
-                            
-                            if (aux.states[nextStateId].robberTurnWins) {
-                                aux.states[stateId].copTurnWins = 1;
+                            nextState = &(aux.states[aux.transitions[i] + r]);
+                            if (nextState->robberTurnWins) {
+                                state->copTurnWins = 1;
                                 newWinsThisPass++;
                                 break; 
                             }
                         }
                     }
-                
-                    stateId++;
-                    rEdges += adj.maxDegree; 
+
+                    // NEW: If, after both turns, the cops STILL haven't secured a win 
+                    // from this state, then this cId is not a universal win on this pass.
+                    if (!state->copTurnWins) {
+                        universalWinForCId = false;
+                    }
                 }
+
+                if (universalWinForCId) {
+                    winningStartConfigId = cId;
+                    captureRounds = passes;
+                    break;
+                }
+            }
+
+            if (winningStartConfigId != -1) {
+                std::cout << "Pass " << passes << ": Optimal capture strategy found!\n";
+                break; 
             }
 
             std::cout << "Pass " << passes << ": Found " << newWinsThisPass << " new winning states.\n";
 
             if (newWinsThisPass == 0) break;
         }
+
+        p->enter("Idle");
     }
 
-    // STEP 5 --- FINAL VERDICT ---
-    p->enter("Final Verdict Evaluation");
-    std::cout << "\n--- FINAL VERDICT ---\n";
-    int winningStartConfigId = -1;
 
-    for (size_t cId = 0; cId < aux.configCount; ++cId) {
-        bool universalWin = true;
-        for (int rStart = 0; rStart < N; ++rStart) {
-            size_t stateId = aux.getStateId(cId, rStart);
-            if (!aux.states[stateId].copTurnWins) {
-                universalWin = false;
-                break;
+    /* --- Find Final Result --- */
+    {
+        p->enter("Final Verdict Evaluation");
+
+        std::cout << "\n--- FINAL VERDICT ---\n";
+
+        if (winningStartConfigId != -1) {
+            std::cout << "RESULT: WIN. " << k << " Cop(s) CAN win this graph.\n";
+            std::cout << "Optimal Cop Start Positions: (";
+            for (int i = 0; i < k; ++i) {
+                std::cout << (int)aux.configs[winningStartConfigId * k + i] << (i == k - 1 ? "" : ", ");
             }
+            std::cout << ")\n";
+        } else {
+            std::cout << "RESULT: LOSS. " << k << " Cop(s) CANNOT guarantee a win.\n";
+            std::cout << "(The Robber has a strategy to survive indefinitely against any start).\n";
         }
-        if (universalWin) {
-            winningStartConfigId = cId;
-            break;
-        }
+
+        p->enter("Idle");
     }
 
-    p->stop(); 
 
-    if (winningStartConfigId != -1) {
-        std::cout << "RESULT: WIN. " << k << " Cop(s) CAN win this graph.\n";
-        std::cout << "Optimal Cop Start Positions: (";
-        for (int i = 0; i < k; ++i) {
-            std::cout << (int)aux.configs[winningStartConfigId * k + i] << (i == k - 1 ? "" : ", ");
-        }
-        std::cout << ")\n";
-    } else {
-        std::cout << "RESULT: LOSS. " << k << " Cop(s) CANNOT guarantee a win.\n";
-        std::cout << "(The Robber has a strategy to survive indefinitely against any start).\n";
-    }
+    p->enter("Print Memory Report");
+    mem.print();
+    p->enter("Idle");
+
+    return;
+
 }
 
 // --- ENTRY POINT ---
 int main(int argc, char* argv[]) {
+    
+    Profiler p;
 
     if (argc != 3) {
         std::cout << "Usage: " << argv[0] << " <graph_file.txt> <num_cops>\n";
@@ -208,17 +285,13 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    Profiler p; 
-    
-    p.enter("Load Graph File");
     const char* filename = argv[1];
     int k = std::stoi(argv[2]);
-
-    Graph g(filename);
     
-    solveCopsAndRobbers(&g, k, &p);
+    solveCopsAndRobbers(filename, k, &p);
 
-    p.print(); 
+    p.print();
 
     return 0;
+
 }

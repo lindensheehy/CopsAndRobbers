@@ -48,7 +48,7 @@
         "Max Number of Tickets": "1"
     },
     "visualizer.py": {
-        "Adjacency Matrix": "assets\\matrices\\scotlandyard-red.txt",
+        "Adjacency Matrix": "assets\\matrices\\scotlandyard-all.txt",
         "Positions (Optional)": "assets\\positions\\scotlandyard.txt"
     }
 }
