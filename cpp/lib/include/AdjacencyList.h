@@ -21,6 +21,7 @@ class AdjacencyList {
 
         // Constructors
 
+        AdjacencyList() : nodeCount(0), maxDegree(0), edges(nullptr) {}
         AdjacencyList(Graph* g);
         AdjacencyList(int nodeCount, int maxDegree);
 
@@ -30,6 +31,9 @@ class AdjacencyList {
 
 
         /*   Instance Functions   */
+
+        // Deferred constructor
+        void constructFrom(Graph* g);
 
         // Returns a pointer to list of edges connected to node. This list will have length at most this->maxDegree. 
         // The value 255 serves as a terminator of the data (no more edges are connected), even if the index has not reached maxDegree-1
