@@ -1,0 +1,13 @@
+we can assume that taxi is free, and we got 1 resource. Maybe that can be a starting point. WE might actually cut off everything after 22 rounds for oxiliary graph. 
+we have an algorithm for djikstra to simply see if the shortest path is unique, and we can do smth similar - length of the path is the time (steps),
+and the tokens is the criteria to keep the path the one that is right. Main problem is to craft a graph - we probably cant just discard the "bad" moves 
+(the ones where robber survives less) - so we need to consider all the games - which explodes the graph. Again to simplify further - we can track only one cop for now,
+robber is free for all, other cops are bobbies without the token constraints. So one possibility is - find the winning node you wanna get to, and update how many tokens you used
+to get there, and then if you during propagation found a better amount? You update it! Until you get to amount that satisfies our constraint - that MIGHT BE a 
+starting point for the solution.
+Now we got algorithm (technically) to solve the resource problem - but which graph are we solving it on? But its still until 22. 
+Finalize 1/2 visible, generalize to 1/5. Probably try to work on 1/5 and tokens but it all COMES DOWN TO CLEANING UP THE PIPELINE:
+Working on 1/2 visible is the most crucial step - it needs to be clean, no bugs, and the SOLUTION (the marked states stored with timestamps) cleaned up and then move on to next.
+
+
+Next meeting: Wednesday 29th April, at 1pm in person.
