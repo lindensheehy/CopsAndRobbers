@@ -8,6 +8,8 @@ COMPILER = "g++"
 FLAGS = ["-Wall", "-std=c++17", "-Ilib/include", "-Ofast"]
 
 # Directories
+APP_DIR = Path("app")             # <--- NEW: Supervisor directory
+MAIN_CPP = APP_DIR / "main.cpp"   # <--- NEW: The only file with a main()
 LIB_SRC_DIR = Path("lib/src")
 SOLVERS_DIR = Path("solvers")
 BUILD_DIR = Path("build")
@@ -22,6 +24,11 @@ def main():
     # 1. Create the required build directories if they do not exist
     OBJ_DIR.mkdir(parents=True, exist_ok=True)
     BIN_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Ensure main.cpp exists before attempting to build
+    if not MAIN_CPP.exists():
+        print(f"Error: Supervisor file {MAIN_CPP} not found.")
+        sys.exit(1)
 
     # 2. Gather .cpp files
     lib_files = list(LIB_SRC_DIR.glob("*.cpp"))
@@ -56,7 +63,7 @@ def main():
         if libs_compiled == 0:
             print("All backend objects are up to date.")
 
-    # 4. Compile and link the solvers (Continues on error)
+    # 4. Compile and link the solvers using the macro trick (Continues on error)
     failed_solvers = []
     
     if solver_files:
@@ -71,16 +78,29 @@ def main():
             if exe_path.exists():
                 exe_mtime = exe_path.stat().st_mtime
                 src_newer = solver_src.stat().st_mtime > exe_mtime
+                main_newer = MAIN_CPP.stat().st_mtime > exe_mtime # <--- NEW: Rebuild if main.cpp changes
                 objs_newer = any(o.stat().st_mtime > exe_mtime for o in obj_files)
                 
-                if not src_newer and not objs_newer:
+                if not src_newer and not main_newer and not objs_newer:
                     needs_rebuild = False
             
             if not needs_rebuild:
                 continue
 
-            cmd = [COMPILER] + FLAGS + [str(solver_src)] + obj_args + ["-o", str(exe_path)]
-            print(f"Linking:   {exe_path.name}")
+            # NEW: Format the path for the C++ macro. 
+            # .as_posix() forces forward slashes so Windows doesn't interpret \ as escape chars inside the macro!
+            include_path = f'"{solver_src.resolve().as_posix()}"'
+
+            # NEW: We are compiling MAIN_CPP, not solver_src, and passing the macro.
+            cmd = [
+                COMPILER
+            ] + FLAGS + [
+                str(MAIN_CPP) 
+            ] + obj_args + [
+                f'-DALGORITHM_INCLUDE={include_path}', 
+                "-o", str(exe_path)
+            ]
+            print(f"Compiling & Linking:   {exe_path.name}")
             
             result = subprocess.run(cmd)
             

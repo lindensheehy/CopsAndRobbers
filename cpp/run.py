@@ -2,89 +2,14 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 import os
 import subprocess
-import sys
 import time
 import threading
 import json
-import re
 from pathlib import Path
 
 # --- CONFIGURATION ---
 DEFAULT_ASSET_DIR = "../assets"
 INPUT_CACHE_FILE = os.path.join(DEFAULT_ASSET_DIR, "master_cache.json")
-PARSER_CACHE_FILE = os.path.join(DEFAULT_ASSET_DIR, "parser_cache.json")
-
-def auto_discover_cpp_args(solvers_dir="solvers"):
-    """
-    Scans the C++ solver files, checks the cache based on modification time,
-    parses out required arguments via regex, and builds the UI configuration.
-    """
-    dynamic_config = {}
-    solvers_path = Path(solvers_dir)
-    
-    if not solvers_path.exists():
-        return dynamic_config
-
-    # 1. Load the existing parser cache
-    parser_cache = {}
-    if os.path.exists(PARSER_CACHE_FILE):
-        try:
-            with open(PARSER_CACHE_FILE, "r") as f:
-                parser_cache = json.load(f)
-        except Exception:
-            parser_cache = {}
-
-    cache_updated = False
-    usage_pattern = re.compile(r'argv\[0\]\s*<<\s*"([^"]+)"')
-    
-    # 2. Iterate through solvers and check against cache
-    for cpp_file in solvers_path.glob("*.cpp"):
-        exe_name = f"{cpp_file.stem}.exe"
-        mtime = cpp_file.stat().st_mtime
-        
-        # Cache Hit: File hasn't changed since last parse
-        if exe_name in parser_cache and parser_cache[exe_name].get("mtime") == mtime:
-            dynamic_config[exe_name] = parser_cache[exe_name].get("args", [])
-            continue
-            
-        # Cache Miss: Parse the file
-        try:
-            content = cpp_file.read_text(encoding='utf-8')
-            match = usage_pattern.search(content)
-            
-            args = []
-            if match:
-                usage_str = match.group(1)
-                tokens = re.findall(r'<([^>]+)>', usage_str)
-                
-                for token in tokens:
-                    token_lower = token.lower()
-                    if ".txt" in token_lower or "graph" in token_lower:
-                        args.append(("Graph File", "*.txt"))
-                    elif "cop" in token_lower:
-                        args.append(("Number of Cops", "int"))
-                    elif "ticket" in token_lower:
-                        args.append(("Max Tickets", "int"))
-                    else:
-                        clean_token = token.replace("_", " ").title()
-                        args.append((clean_token, "any"))
-            
-            # Update cache dictionary
-            dynamic_config[exe_name] = args
-            parser_cache[exe_name] = {"mtime": mtime, "args": args}
-            cache_updated = True
-            
-        except Exception as e:
-            print(f"Warning: Failed to parse {cpp_file.name} for arguments. ({e})")
-            dynamic_config[exe_name] = []
-            
-    # 3. Save cache to disk if any new files were parsed
-    if cache_updated:
-        os.makedirs(os.path.dirname(PARSER_CACHE_FILE), exist_ok=True)
-        with open(PARSER_CACHE_FILE, "w") as f:
-            json.dump(parser_cache, f, indent=4)
-            
-    return dynamic_config
 
 class MasterApp:
     def __init__(self, root):
@@ -94,9 +19,6 @@ class MasterApp:
         
         # Ensure working directory is set to this script's location
         os.chdir(os.path.dirname(os.path.abspath(__file__)))
-        
-        # Dynamically discover configurations
-        self.exe_config = auto_discover_cpp_args()
         
         # Load user input cache
         self.input_cache = self.load_input_cache()
@@ -112,7 +34,8 @@ class MasterApp:
         self.arg_frame = tk.LabelFrame(root, text="Arguments", padx=10, pady=10)
         self.arg_frame.pack(fill=tk.X, padx=20, pady=10)
         
-        self.arg_entries = [] 
+        self.graph_entry = None
+        self.cops_entry = None
 
         # --- Bottom Section: Buttons ---
         btn_frame = tk.Frame(root)
@@ -144,16 +67,16 @@ class MasterApp:
     def scan_directory(self):
         """Scans strictly for .exe files to populate the UI."""
         self.tool_list.delete(0, tk.END)
-        root_dir = os.path.abspath(".")
         
-        # Re-run auto discovery in case you added a new .cpp file or modified one
-        self.exe_config = auto_discover_cpp_args()
+        # Look in build/bin first, fallback to current dir
+        bin_dir = os.path.abspath("build/bin")
+        search_dir = bin_dir if os.path.exists(bin_dir) else os.path.abspath(".")
         
         found_files = []
-        for dirpath, _, filenames in os.walk(root_dir):
+        for dirpath, _, filenames in os.walk(search_dir):
             for f in filenames:
                 if f.endswith('.exe'):
-                    rel_path = os.path.relpath(os.path.join(dirpath, f), root_dir)
+                    rel_path = os.path.relpath(os.path.join(dirpath, f), os.path.abspath("."))
                     found_files.append(rel_path.replace("\\", "/"))
         
         found_files.sort()
@@ -164,7 +87,6 @@ class MasterApp:
         """Updates the Argument Frame based on the selected tool."""
         for widget in self.arg_frame.winfo_children():
             widget.destroy()
-        self.arg_entries = []
 
         selection = self.tool_list.curselection()
         if not selection: return
@@ -172,41 +94,32 @@ class MasterApp:
         tool_path = self.tool_list.get(selection[0])
         tool_name = os.path.basename(tool_path)
 
-        if tool_name in self.exe_config:
-            args_needed = self.exe_config[tool_name]
-            
-            if not args_needed:
-                tk.Label(self.arg_frame, text="No arguments required.", fg="gray").pack()
-            
-            for i, (label_text, arg_type) in enumerate(args_needed):
-                cached_val = self.input_cache.get(tool_name, {}).get(label_text, "")
+        # Retrieve cached values or set defaults
+        cached_graph = self.input_cache.get(tool_name, {}).get("Graph File", "")
+        cached_cops = self.input_cache.get(tool_name, {}).get("Number of Cops", "1")
 
-                row = tk.Frame(self.arg_frame)
-                row.pack(fill=tk.X, pady=4)
-                
-                tk.Label(row, text=label_text, width=20, anchor='w').pack(side=tk.LEFT)
-                
-                if arg_type == "int":
-                    entry = tk.Spinbox(row, from_=1, to=10, width=5)
-                    if cached_val:
-                        entry.delete(0, "end")
-                        entry.insert(0, cached_val)
-                    entry.pack(side=tk.LEFT, padx=5)
-                    self.arg_entries.append((entry, label_text))
-                    tk.Label(row, text="(Integer)", fg="gray", font=("Arial", 8)).pack(side=tk.LEFT)
-                    
-                else:
-                    entry = tk.Entry(row)
-                    if cached_val:
-                        entry.insert(0, cached_val)
-                    entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
-                    self.arg_entries.append((entry, label_text))
-                    
-                    btn = tk.Button(row, text="Browse...", 
-                                    command=lambda e=entry, ft=arg_type, tn=tool_name, lt=label_text: self.browse_file(e, ft, tn, lt))
-                    btn.pack(side=tk.RIGHT)
-        else:
-            tk.Label(self.arg_frame, text="No parsed configuration. Running without arguments.", fg="orange").pack()
+        # -- Graph File Row --
+        row1 = tk.Frame(self.arg_frame)
+        row1.pack(fill=tk.X, pady=4)
+        tk.Label(row1, text="Graph File", width=15, anchor='w').pack(side=tk.LEFT)
+        
+        self.graph_entry = tk.Entry(row1)
+        if cached_graph:
+            self.graph_entry.insert(0, cached_graph)
+        self.graph_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        
+        btn = tk.Button(row1, text="Browse...", command=lambda: self.browse_file(self.graph_entry, "*.txt", tool_name, "Graph File"))
+        btn.pack(side=tk.RIGHT)
+
+        # -- Number of Cops Row --
+        row2 = tk.Frame(self.arg_frame)
+        row2.pack(fill=tk.X, pady=4)
+        tk.Label(row2, text="Number of Cops", width=15, anchor='w').pack(side=tk.LEFT)
+        
+        self.cops_entry = tk.Spinbox(row2, from_=1, to=20, width=5)
+        self.cops_entry.delete(0, "end")
+        self.cops_entry.insert(0, cached_cops)
+        self.cops_entry.pack(side=tk.LEFT, padx=5)
 
     def browse_file(self, entry_widget, file_pattern, tool_name, label_text):
         init_dir = DEFAULT_ASSET_DIR if os.path.exists(DEFAULT_ASSET_DIR) else "."
@@ -214,7 +127,7 @@ class MasterApp:
         filename = filedialog.askopenfilename(
             initialdir=init_dir,
             title="Select File",
-            filetypes=[("Allowed Files", file_pattern), ("All Files", "*.*")]
+            filetypes=[("Graph Files", file_pattern), ("All Files", "*.*")]
         )
         
         if filename:
@@ -241,19 +154,22 @@ class MasterApp:
         tool_rel_path = self.tool_list.get(selection[0])
         tool_name = os.path.basename(tool_rel_path)
         
-        args = []
-        for entry, label in self.arg_entries:
-            val = entry.get().strip()
-            if val:
-                args.append(val)
-                if tool_name not in self.input_cache:
-                    self.input_cache[tool_name] = {}
-                self.input_cache[tool_name][label] = val
-        
+        graph_val = self.graph_entry.get().strip()
+        cops_val = self.cops_entry.get().strip()
+
+        if not graph_val or not cops_val:
+            messagebox.showwarning("Warning", "Both Graph File and Number of Cops are required.")
+            return
+            
+        # Save exact current inputs to cache
+        if tool_name not in self.input_cache:
+            self.input_cache[tool_name] = {}
+        self.input_cache[tool_name]["Graph File"] = graph_val
+        self.input_cache[tool_name]["Number of Cops"] = cops_val
         self.save_input_cache()
         
-        # All tools are now assumed to be executables
-        cmd = [tool_rel_path] + args
+        # Hardcoded argument structure
+        cmd = [tool_rel_path, graph_val, cops_val]
         
         print(f"\nExecuting: {' '.join(cmd)}")
         
