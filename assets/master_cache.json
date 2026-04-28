@@ -5,8 +5,8 @@
         "Positions (Optional)": "assets\\positions\\scotlandyard.txt"
     },
     "replay_game.py": {
-        "Adjacency Matrix": "assets\\matrices\\scotlandyard-yellow.txt",
-        "Cached Game (.json)": "assets\\cached_solutions\\scotlandyard_2cops_perfect_game.json",
+        "Adjacency Matrix": "assets\\matrices\\scotlandyard-all.txt",
+        "Cached Game (.json)": "assets\\cached_solutions\\scotlandyard-all_2cops_perfect_game.json",
         "Positions (Optional)": "assets\\positions\\scotlandyard.txt"
     },
     "graph_builder.py": {

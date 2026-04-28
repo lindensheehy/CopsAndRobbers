@@ -289,7 +289,7 @@ bool findFinalResult(int k) {
     std::cout << "\n--- FINAL VERDICT ---\n";
 
     int bestCId = -1;
-    uint8_t overallMinWorstCase = MAX_ROUND_COUNT; // Acts as our INFINITY
+    uint8_t overallMinWorstCase = MAX_ROUND_COUNT;
 
     for (size_t cId = 0; cId < aux.configCount; ++cId) {
         
