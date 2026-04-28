@@ -13,9 +13,12 @@ constexpr size_t MAX_COPS = 256;
 
 template <typename StateData>
 class AuxGraph {
+
 public:
+
     int k;
     int N;
+    int columns;
     size_t configCount;
     size_t numStates;
 
@@ -28,12 +31,12 @@ public:
 
     const AdjacencyList* adj;
 
-    AuxGraph() : k(0), N(0), configCount(0), numStates(0), configs(nullptr), 
+    AuxGraph() : k(0), N(0), columns(0), configCount(0), numStates(0), configs(nullptr), 
           transitionHeads(nullptr), states(nullptr), adj(nullptr), mem(nullptr) {}
 
     // Constructor: Generates configs, queues memory, and builds transitions
-    AuxGraph(int k, const AdjacencyList* adj, Allocator* mem) 
-        : k(k), N(N), configCount(0), numStates(0), configs(nullptr), 
+    AuxGraph(int k, int columns, const AdjacencyList* adj, Allocator* mem) 
+        : k(k), N(N), columns(columns), configCount(0), numStates(0), configs(nullptr), 
           transitionHeads(nullptr), states(nullptr), adj(adj), mem(mem) {
         this->constructFrom(k, adj, mem);
     }
@@ -45,12 +48,13 @@ public:
     
 
     // Deferred constructor
-    void constructFrom(int k, const AdjacencyList* adj, Allocator* mem) {
+    void constructFrom(int k, int columns, const AdjacencyList* adj, Allocator* mem) {
 
         if (mem == nullptr || adj == nullptr) return;
 
         this->k = k;
         this->N = adj->nodeCount;
+        this->columns = columns;
         this->adj = adj;
         this->mem = mem;
 
@@ -58,7 +62,7 @@ public:
         this->generateCopConfigs();
         
         if (this->configCount == 0) return;
-        this->numStates = this->configCount * N;
+        this->numStates = this->configCount * N * columns;
 
         this->mem->requestAlloc<StateData>("AuxGraph Per State Data", this->numStates, &this->states);
         this->mem->allocate();
@@ -71,8 +75,8 @@ public:
     // --- Core Accessors ---
 
     // Maps a cop configuration ID and a robber position to a 1D state ID
-    inline StateData* getState(size_t cId, int r) const {
-        return &(this->states[cId * N + r]);
+    inline StateData* getState(size_t cId, int r, int column) const {
+        return &(this->states[(cId * N + r) * this->columns + column]);
     }
 
     // Fetches the exact transition boundaries for a given cop configuration
@@ -91,6 +95,7 @@ public:
     }
 
 private:
+
     Allocator* mem;
 
     void generateCopConfigs() {
@@ -248,4 +253,5 @@ private:
 
         std::cout << "Transitions generated. Total edge pointers: " << this->transitions.size() << "\n";
     }
+
 };
