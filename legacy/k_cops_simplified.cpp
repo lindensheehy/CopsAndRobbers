@@ -1,25 +1,11 @@
-/**
- * ============================================================================
- * FILE --- k_cops_2.cpp
- * ============================================================================
- * * OVERVIEW
- * Solves the Cops and Robbers graph game with improved performance and reduced 
- * overhead. It does this using (A) exact combinatorial calculation and iterative 
- * state generation, (B) a flat Compressed Sparse Row (CSR) format for transition 
- * lookup, and (C) direct pointer arithmetic and caching in the induction loop.
- * * DEEPER DIVE
- * - STL Removal: `std::vector` overhead is largely eliminated in favor of 
- * contiguous `uint8_t` arrays, drastically reducing fragmentation and 
- * improving cache locality.
- * - Exact Allocation: Instead of dynamic resizing, the state space size is 
- * pre-calculated using combinations with replacement. Memory is allocated upfront.
- * - CSR Transitions: Team moves are packed into `transitionHeads` and 
- * `transitions`. Instead of chasing pointers in a vector-of-vectors, the cops' 
- * moves for configuration `cId` are found sequentially between 
- * `transitionHeads[cId]` and `transitionHeads[cId + 1]`.
- * - Loop Optimization: The backward induction loop caches `cId * N` and utilizes 
- * pointer striding (`rEdges += adj.maxDegree`) to evaluate the robber's moves 
- * without redundant multiplication or array indexing.
+/*
+
+============================================================================
+FILE --- k_cops_2.cpp
+============================================================================
+
+Base cops and robbers game
+
 
 EXAMPLE RUN (scotlandyard-all with 3 cops)
 ||>>>>>=====-----=====<<<<<     Memory Tracking Report     >>>>>=====-----=====<<<<<

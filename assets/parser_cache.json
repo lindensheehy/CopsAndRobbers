@@ -13,17 +13,8 @@
         ]
     },
     "k_cops_2.exe": {
-        "mtime": 1776126753.092269,
-        "args": [
-            [
-                "Graph File",
-                "*.txt"
-            ],
-            [
-                "Number of Cops",
-                "int"
-            ]
-        ]
+        "mtime": 1777247355.940933,
+        "args": []
     },
     "k_cops_3.exe": {
         "mtime": 1776014107.2208114,
