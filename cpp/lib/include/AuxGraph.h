@@ -22,7 +22,7 @@ public:
     uint8_t* configs;
     size_t* transitionHeads;
     std::vector<size_t> transitions;
-    
+
     // The tightly bundled AoS DP Table
     StateData* states;
 

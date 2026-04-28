@@ -1,6 +1,7 @@
 *.o
 *.exe
 *.npz
+*.bin
 
 cpp/assets/parser_cache.json
 temp_dp.txt

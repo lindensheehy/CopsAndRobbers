@@ -39,3 +39,26 @@ bool getFileLength(const char* fileName, std::uintmax_t * size) {
     return false;
 
 }
+
+bool createFile(const char* fileName, uint8_t* data, std::uintmax_t size) {
+
+    // Sanity check before attempting to write
+    if (data == nullptr || size == 0) return 1;
+
+    // Open file in "write binary" mode
+    std::FILE* file = std::fopen(fileName, "wb");
+    if (!file) return 1;
+
+    // Write the raw array to disk
+    size_t n = std::fwrite(data, 1, size, file);
+    
+    std::fclose(file);
+
+    // Verify that the number of bytes written matches the expected size
+    if (n != size) {
+        return 1;
+    }
+
+    return 0;
+
+}

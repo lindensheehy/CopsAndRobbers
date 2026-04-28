@@ -6,9 +6,32 @@ Base cops and robbers game
 
 EXAMPLE RUN (scotlandyard-all with 3 cops)
 
+Executing: build/bin/k_cops.exe ..\assets\matrices\scotlandyard-all.txt 3
+Building AuxGraph transition table for 1333300 configurations...
+Transitions generated. Total edge pointers: 201442275
+Initialized 3960100 winning states (Captures).
+Starting Backward Induction Loop...
+Pass 1: Found 16736831 new winning states.
+Pass 2: Found 2667138 new winning states.
+Pass 3: Found 3983748 new winning states.
+Pass 4: Found 7924515 new winning states.
+Pass 5: Found 16297328 new winning states.
+Pass 6: Found 32549819 new winning states.
+Pass 7: Found 59452237 new winning states.
+Pass 8: Found 85540587 new winning states.
+Pass 9: Found 102095856 new winning states.
+Pass 10: Found 95770889 new winning states.
+Pass 11: Found 64943427 new winning states.
+Pass 12: Found 27958717 new winning states.
+Pass 13: Found 6230772 new winning states.
+Pass 14: Found 564029 new winning states.
+Pass 15: Found 17307 new winning states.
+Pass 16: Found 0 new winning states.
+
 --- FINAL VERDICT ---
 RESULT: WIN. 3 Cop(s) CAN win this graph.
-Optimal Cop Start Positions: (46, 110, 127)
+Optimal Cop Start Positions: (0, 66, 139)
+Capture Time: 11 plys (5 full rounds).
 
 ||>>>>>=====-----=====<<<<<     Memory Tracking Report     >>>>>=====-----=====<<<<<
 ||
@@ -36,22 +59,28 @@ Optimal Cop Start Positions: (46, 110, 127)
 ||>>>>>>>>>>>>>>>>================------------------================<<<<<<<<<<<<<<<<
 
 
+Preparing data for binary export...
+Successfully packed 2056.94 MB into the binary blob.
+
 ||>>>>>=====-----=====<<<<<     Timing Profiler Report     >>>>>=====-----=====<<<<<
 ||
-||   Total App Uptime ---------------=>      68.9374 s (100.00%)
-||    -> Tracked Execution -----=>      68.9374 s (100.00%)
+||   Total App Uptime ---------------=>     145.3686 s (100.00%)
+||    -> Tracked Execution -----=>     145.3686 s (100.00%)
 ||
 ||
 ||  ---===<<<>>>===---   Drill Down   ---===<<<>>>===---
 ||
-||  -> Load Graph ---------------=>       0.0058 s (  0.01%)
-||  -> Idle ---------------------=>       0.0000 s (  0.00%)
-||  -> Build Aux Graph ----------=>      19.9404 s ( 28.93%)
-||  -> Initialize Captures ------=>       0.2973 s (  0.43%)
-||  -> Main Loop ----------------=>      48.6912 s ( 70.63%)
-||  -> Final Verdict Evaluation -=>       0.0027 s (  0.00%)
+||  -> Load Graph File -----=>       0.0003 s (  0.00%)
+||  -> Idle ----------------=>       0.0000 s (  0.00%)
+||  -> Build Aux Graph -----=>      20.3069 s ( 13.97%)
+||  -> Initialize Captures -=>       0.3341 s (  0.23%)
+||  -> Main Loop -----------=>     123.2759 s ( 84.80%)
+||  -> Find Final Result ---=>       0.1152 s (  0.08%)
+||  -> Output Data ---------=>       1.3362 s (  0.92%)
 ||
 ||>>>>>>>>>>>>>>>>================------------------================<<<<<<<<<<<<<<<<
+
+--- k_cops.exe finished in 145.4781 seconds ---
 
  */
 
@@ -60,7 +89,9 @@ Optimal Cop Start Positions: (46, 110, 127)
 #include "AuxGraph.h"
 #include "Allocator.h"
 #include "Profiler.h"
+#include "fileio.h"
 #include <iostream>
+#include <filesystem>
 #include <vector>
 #include <string>
 
@@ -79,6 +110,8 @@ struct DataItem {
     } robberTurn;
 
 };
+
+constexpr uint8_t MAX_ROUND_COUNT = 0b1111111;
 
 
 Allocator mem;
@@ -118,16 +151,32 @@ bool buildAuxGraph(int k) {
 
 bool initializeCaptures() {
 
-    int initialWins = 0;
+    uint64_t initialWins = 0;
     DataItem* state;
+
     for (size_t cId = 0; cId < aux.configCount; ++cId) {
         for (int r = 0; r < adj.nodeCount; ++r) {
 
+            state = aux.getState(cId, r);
+
             if (aux.isInstantCatch(cId, r)) {
-                state = aux.getState(cId, r);
+
                 state->copTurn.marked = true;
+                state->copTurn.markedRound = 0;
                 state->robberTurn.marked = true;
+                state->robberTurn.markedRound = 0;
+
                 initialWins++;
+
+            }
+
+            else {
+
+                state->copTurn.marked = false;
+                state->copTurn.markedRound = MAX_ROUND_COUNT;
+                state->robberTurn.marked = false;
+                state->robberTurn.markedRound = MAX_ROUND_COUNT;
+
             }
 
         }
@@ -150,8 +199,7 @@ bool mainLoop() {
     DataItem* state;
     DataItem* nextState;
     uint8_t* rEdges;
-    bool canEscape;
-    bool universalWinForCId;
+    // bool universalWinForCId;
 
     // Iterator variables
     size_t cId;
@@ -164,8 +212,7 @@ bool mainLoop() {
 
         for (cId = 0; cId < aux.configCount; ++cId) {
             
-            aux.getCopTransitions(cId, copTransStart, copTransEnd);
-            universalWinForCId = true;
+            // universalWinForCId = true;
             
             for (r = 0; r < adj.nodeCount; ++r) {
                 
@@ -175,50 +222,78 @@ bool mainLoop() {
                 // --- RIGHT SIDE: Robber's Turn ---
                 if (!state->robberTurn.marked && state->copTurn.marked) {
 
-                    canEscape = false;
+                    uint8_t maxRounds = 0;
+                    bool canEscape = false;
+
                     for (i = 0; rEdges[i] != 255; i++) {
                         nextState = aux.getState(cId, rEdges[i]);
                         if (!nextState->copTurn.marked) {
                             canEscape = true;
                             break; 
                         }
+                        else {
+                            if (maxRounds < nextState->copTurn.markedRound) maxRounds = nextState->copTurn.markedRound;
+                        }
                     }
 
                     if (!canEscape) {
-                        state->robberTurn.marked = 1;
+                        state->robberTurn.marked = true;
+                        state->robberTurn.markedRound = maxRounds + 1;
                         newWinsThisPass++;
                     }
                 }
 
+            }
+
+            aux.getCopTransitions(cId, copTransStart, copTransEnd);
+
+            for (r = 0; r < adj.nodeCount; ++r) {
+
+                state = aux.getState(cId, r);
+                rEdges = adj.getEdges(r);
+
                 // --- LEFT SIDE: Cop's Turn ---
                 if (!state->copTurn.marked) {
+
+                    uint8_t minRounds = MAX_ROUND_COUNT;
+                    bool winFound = false;
+
                     for (i = copTransStart; i < copTransEnd; ++i) {
+
                         nextState = &(aux.states[aux.transitions[i] + r]);
+
                         if (nextState->robberTurn.marked) {
-                            state->copTurn.marked = 1;
-                            newWinsThisPass++;
-                            break; 
+                            winFound = true;
+                            if (nextState->robberTurn.markedRound < minRounds) minRounds = nextState->robberTurn.markedRound;
                         }
+
                     }
+
+                    if (winFound) {
+                        state->copTurn.marked = true;
+                        state->copTurn.markedRound = minRounds + 1;
+                        newWinsThisPass++;
+                    }
+
                 }
 
                 // NEW: If, after both turns, the cops STILL haven't secured a win 
                 // from this state, then this cId is not a universal win on this pass.
-                if (!state->copTurn.marked) {
-                    universalWinForCId = false;
-                }
+                // if (!state->copTurn.marked) {
+                //     universalWinForCId = false;
+                // }
             }
 
-            if (universalWinForCId) {
-                winningStartConfigId = cId;
-                break;
-            }
+            // if (universalWinForCId) {
+            //     winningStartConfigId = cId;
+            //     break;
+            // }
         }
 
-        if (winningStartConfigId != -1) {
-            std::cout << "Pass " << passes << ": Optimal capture strategy found!\n";
-            break; 
-        }
+        // if (winningStartConfigId != -1) {
+        //     std::cout << "Pass " << passes << ": Optimal capture strategy found!\n";
+        //     break; 
+        // }
 
         std::cout << "Pass " << passes << ": Found " << newWinsThisPass << " new winning states.\n";
 
@@ -233,19 +308,147 @@ bool findFinalResult(int k) {
 
     std::cout << "\n--- FINAL VERDICT ---\n";
 
-    if (winningStartConfigId != -1) {
+    int bestCId = -1;
+    uint8_t overallMinWorstCase = MAX_ROUND_COUNT; // Acts as our INFINITY
+
+    for (size_t cId = 0; cId < aux.configCount; ++cId) {
+        
+        bool universalWin = true;
+        uint8_t worstCasePlys = 0;
+
+        for (int r = 0; r < adj.nodeCount; ++r) {
+            
+            DataItem* state = aux.getState(cId, r);
+            
+            // If the cops can't win from this configuration against a robber at 'r',
+            // this cId is not a universal winning start.
+            if (!state->copTurn.marked) {
+                universalWin = false;
+                break; 
+            }
+            
+            // Track the robber's longest possible survival time against this cId
+            if (state->copTurn.markedRound > worstCasePlys) {
+                worstCasePlys = state->copTurn.markedRound;
+            }
+        }
+
+        // If this cId guarantees a win, and does so faster than our previous best...
+        if (universalWin && worstCasePlys < overallMinWorstCase) {
+            overallMinWorstCase = worstCasePlys;
+            bestCId = cId;
+        }
+    }
+
+    if (bestCId != -1) {
         std::cout << "RESULT: WIN. " << k << " Cop(s) CAN win this graph.\n";
+        
         std::cout << "Optimal Cop Start Positions: (";
         for (int i = 0; i < k; ++i) {
-            std::cout << (int)aux.configs[winningStartConfigId * k + i] << (i == k - 1 ? "" : ", ");
+            std::cout << (int)aux.configs[bestCId * k + i] << (i == k - 1 ? "" : ", ");
         }
         std::cout << ")\n";
+        
+        std::cout << "Capture Time: " << (int)overallMinWorstCase << " plys (" 
+                  << (overallMinWorstCase / 2) << " full rounds).\n";
+
     } else {
         std::cout << "RESULT: LOSS. " << k << " Cop(s) CANNOT guarantee a win.\n";
         std::cout << "(The Robber has a strategy to survive indefinitely against any start).\n";
     }
 
     mem.print();
+
+    return 0;
+
+}
+
+bool outputData(const char* filename, int k) {
+
+    std::cout << "\nPreparing data for binary export...\n";
+
+    // Calculate section byte sizes
+    uint64_t configsSize    = static_cast<uint64_t>(aux.configCount) * aux.k * sizeof(uint8_t);
+    uint64_t transHeadsSize = static_cast<uint64_t>(aux.configCount + 1) * sizeof(size_t);
+    uint64_t transDataSize  = static_cast<uint64_t>(aux.transitions.size()) * sizeof(size_t);
+    uint64_t statesSize     = static_cast<uint64_t>(aux.numStates) * sizeof(DataItem);
+    uint64_t edgesSize      = static_cast<uint64_t>(adj.nodeCount) * adj.maxDegree * sizeof(uint8_t);
+
+    // Define the static header size (10 fields * 8 bytes = 80 bytes)
+    uint64_t headerSize = 10 * sizeof(uint64_t);
+
+    // Calculate absolute byte offsets for the start of each section
+    uint64_t sec1_offset = headerSize;
+    uint64_t sec2_offset = sec1_offset + configsSize;
+    uint64_t sec3_offset = sec2_offset + transHeadsSize;
+    uint64_t sec4_offset = sec3_offset + transDataSize;
+    uint64_t sec5_offset = sec4_offset + statesSize;
+    
+    // Total size is the end of the last section
+    uint64_t totalBlobSize = sec5_offset + edgesSize;
+
+    // Allocate the fat blob
+    uint8_t* fatBlob = new uint8_t[totalBlobSize];
+    if (!fatBlob) {
+        std::cerr << "Error: Failed to allocate " << totalBlobSize << " bytes for binary blob.\n";
+        return 1;
+    }
+
+    // Populate the static 80-byte header
+    uint64_t header[10] = {
+        static_cast<uint64_t>(aux.k),
+        static_cast<uint64_t>(aux.N),
+        static_cast<uint64_t>(aux.configCount),
+        static_cast<uint64_t>(aux.numStates),
+        static_cast<uint64_t>(sizeof(DataItem)),
+        sec1_offset, // configs
+        sec2_offset, // transitionHeads
+        sec3_offset, // transitions
+        sec4_offset, // states
+        sec5_offset  // edges
+    };
+
+    // Write header to the very beginning
+    std::memcpy(fatBlob, header, headerSize);
+
+    // Write flat arrays directly to their designated offsets
+    std::memcpy(fatBlob + sec1_offset, aux.configs, configsSize);
+    std::memcpy(fatBlob + sec2_offset, aux.transitionHeads, transHeadsSize);
+    std::memcpy(fatBlob + sec3_offset, aux.transitions.data(), transDataSize);
+    std::memcpy(fatBlob + sec4_offset, aux.states, statesSize);
+    std::memcpy(fatBlob + sec5_offset, adj.getEdges(0), edgesSize);
+
+    double blobMB = static_cast<double>(totalBlobSize) / (1024.0 * 1024.0);
+    std::cout << "Successfully packed " << blobMB << " MB into the binary blob.\n";
+
+
+    // Extract just the base filename from the relative path
+    // Using .stem() turns "../assets/matrics/graph.txt" into just "graph"
+    std::string cleanName = std::filesystem::path(filename).stem().string();
+
+    // Construct the final string
+    std::string outName = "out/k_cops-output__" + cleanName + "__k-" + std::to_string(k) + ".bin";
+
+    // Extract the directory path ("out")
+    std::filesystem::path filePath(outName);
+    std::filesystem::path dirPath("out");
+
+    // Create the directory if it doesn't exist
+    if (!dirPath.empty() && !std::filesystem::exists(dirPath)) {
+        std::error_code ec;
+        std::filesystem::create_directories(dirPath, ec);
+        
+        if (ec) {
+            std::cerr << "Error: Failed to create directory '" << dirPath.string() 
+                    << "' (" << ec.message() << ")\n";
+        }
+    }
+
+    // Pass it to your fileio function
+    if (createFile(outName.c_str(), fatBlob, totalBlobSize)) {
+        std::cout << "Failed to write to file!\n";
+        return 1;
+    }
 
     return 0;
 

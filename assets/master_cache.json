@@ -42,7 +42,7 @@
     },
     "k_cops_rounds.exe": {
         "Adjacency Matrix": "assets\\matrices\\scotlandyard-yellow.txt",
-        "Number of Cops": "2"
+        "Number of Cops": "3"
     },
     "k_cops_tickets.exe": {
         "Adjacency Matrix": "assets\\matrices\\scotlandyard-all.txt",

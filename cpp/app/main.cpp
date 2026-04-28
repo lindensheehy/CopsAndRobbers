@@ -12,6 +12,7 @@ bool buildAuxGraph(int k);
 bool initializeCaptures();
 bool mainLoop();
 bool findFinalResult(int k);
+bool outputData(const char* filename, int k);
 
 #include ALGORITHM_INCLUDE
 
@@ -23,9 +24,10 @@ void solveCopsAndRobbers(const char* filename, int k) {
 
     /* --- Load Graph File --- */
 
-    p.enter("Load Graph");
+    p.enter("Load Graph File");
     if (loadGraphFile(filename)) {
-        // throw error
+        std::cout << "[FAILED STEP]: 'Load Graph File' was unsuccessful!\n";
+        return;
     }
     p.enter("Idle");
 
@@ -34,7 +36,8 @@ void solveCopsAndRobbers(const char* filename, int k) {
 
     p.enter("Build Aux Graph");
     if (buildAuxGraph(k)) {
-        // throw error
+        std::cout << "[FAILED STEP]: 'Build Aux Graph' was unsuccessful!\n";
+        return;
     }
     p.enter("Idle");
 
@@ -43,7 +46,8 @@ void solveCopsAndRobbers(const char* filename, int k) {
 
     p.enter("Initialize Captures");
     if (initializeCaptures()) {
-        // throw error
+        std::cout << "[FAILED STEP]: 'Initialize Captures' was unsuccessful!\n";
+        return;
     }
     p.enter("Idle");
 
@@ -52,16 +56,28 @@ void solveCopsAndRobbers(const char* filename, int k) {
     
     p.enter("Main Loop");
     if (mainLoop()) {
-        // throw error
+        std::cout << "[FAILED STEP]: 'Main Loop' was unsuccessful!\n";
+        return;
     }
     p.enter("Idle");
 
 
     /* --- Find Final Result --- */
 
-    p.enter("Final Verdict Evaluation");
+    p.enter("Find Final Result");
     if (findFinalResult(k)) {
-        // throw error
+        std::cout << "[FAILED STEP]: 'Find Final Result' was unsuccessful!\n";
+        return;
+    }
+    p.enter("Idle");
+
+
+    /* --- Output Data --- */
+
+    p.enter("Output Data");
+    if (outputData(filename, k)) {
+        std::cout << "[FAILED STEP]: 'Output Data' was unsuccessful!\n";
+        return;
     }
     p.enter("Idle");
 
