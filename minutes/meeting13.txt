@@ -1,0 +1,12 @@
+we can go over budget when we compute one path, and then see how to optimize on other tokens. So we need to compute per each path a robber could take,
+the token constraints. Instead of the library in the end we perhaps will be making an api. At some point a good thing to keep in mind that robber 
+has wildcard tokens, and have the tokens that they can use only if the cop used it. The wildcard probably will be a sepparate resource. But again for now 
+just get aux graph done, figure out how to do the path that uses tokens in constraint (robber is any). Also 1/k cops visibility 
+algorithm needs to be made based on how 1/2 visibility cops. Maybe aux graph we could place constraint of 22 rounds (but this is brainstorm). So we would be picking nodes
+that have 1 less than required amount of rounds. And then we find minimum amount of tokens (1 token at the time) to the winning nodes. so using one token if it says 
+too big of a number we cant win (other tokens is 0). So we find shortest path. so the last column is the winning state of the game - there is 22 columns for each 
+round (each step). So we will have to think floyd warshall - but again that is brainstorm. You find starting position for cops (final destinations - many nodes 
+for robber starts but COP STARTS STAY), and then our rirst nodes (cop on top of robber). 
+
+
+Next meeting: online wednesday 13th (on lunch 12-1 but verify and email) online. 
