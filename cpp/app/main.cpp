@@ -7,12 +7,12 @@
 #include <vector>
 #include <string>
 
-bool loadGraphFile(const char* filename);
-bool buildAuxGraph(int k);
+bool loadGraphFile(const char* filename, int k);
+bool buildAuxGraph();
 bool initializeCaptures();
 bool mainLoop();
-bool findFinalResult(int k);
-bool outputData(const char* filename, int k);
+bool findFinalResult();
+bool outputData();
 
 #include ALGORITHM_INCLUDE
 
@@ -25,7 +25,7 @@ void solveCopsAndRobbers(const char* filename, int k) {
     /* --- Load Graph File --- */
 
     p.enter("Load Graph File");
-    if (loadGraphFile(filename)) {
+    if (loadGraphFile(filename, k)) {
         std::cout << "[FAILED STEP]: 'Load Graph File' was unsuccessful!\n";
         return;
     }
@@ -35,7 +35,7 @@ void solveCopsAndRobbers(const char* filename, int k) {
     /* --- Build Aux Graph --- */
 
     p.enter("Build Aux Graph");
-    if (buildAuxGraph(k)) {
+    if (buildAuxGraph()) {
         std::cout << "[FAILED STEP]: 'Build Aux Graph' was unsuccessful!\n";
         return;
     }
@@ -65,7 +65,7 @@ void solveCopsAndRobbers(const char* filename, int k) {
     /* --- Find Final Result --- */
 
     p.enter("Find Final Result");
-    if (findFinalResult(k)) {
+    if (findFinalResult()) {
         std::cout << "[FAILED STEP]: 'Find Final Result' was unsuccessful!\n";
         return;
     }
@@ -75,7 +75,7 @@ void solveCopsAndRobbers(const char* filename, int k) {
     /* --- Output Data --- */
 
     p.enter("Output Data");
-    if (outputData(filename, k)) {
+    if (outputData()) {
         std::cout << "[FAILED STEP]: 'Output Data' was unsuccessful!\n";
         return;
     }

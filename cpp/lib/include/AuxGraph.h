@@ -30,6 +30,7 @@ public:
     StateData* states;
 
     const AdjacencyList* adj;
+    Allocator* mem;
 
     AuxGraph() : k(0), N(0), columns(0), configCount(0), numStates(0), configs(nullptr), 
           transitionHeads(nullptr), states(nullptr), adj(nullptr), mem(nullptr) {}
@@ -95,8 +96,6 @@ public:
     }
 
 private:
-
-    Allocator* mem;
 
     void generateCopConfigs() {
         if (this->k <= 0 || this->k > static_cast<int>(MAX_COPS)) {

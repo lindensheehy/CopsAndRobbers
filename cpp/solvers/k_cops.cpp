@@ -84,7 +84,7 @@ Successfully packed 2056.94 MB into the binary blob.
 #include "AuxGraph.h"
 #include "Allocator.h"
 #include "Profiler.h"
-#include "fileio.h"
+#include "CacheManager.h"
 #include <iostream>
 #include <filesystem>
 #include <vector>
@@ -103,14 +103,17 @@ constexpr int ROBBERS_TURN = 1;
 constexpr uint8_t MAX_ROUND_COUNT = 0b1111111;
 
 
+const char* filename;
+int k;
 Allocator mem;
 AdjacencyList adj;
 AuxGraph<DataItem> aux;
 
-int winningStartConfigId = -1;
 
+bool loadGraphFile(const char* filename_param, int k_param) {
 
-bool loadGraphFile(const char* filename) {
+    filename = filename_param;
+    k = k_param;
 
     Graph g(filename);
 
@@ -126,8 +129,16 @@ bool loadGraphFile(const char* filename) {
 
 }
 
-bool buildAuxGraph(int k) {
-    
+bool buildAuxGraph() {
+
+    bool failed = CacheManager::loadAuxGraph<DataItem>("k_cops", filename, k, &aux, &mem, &adj);
+    if (!failed) {
+        std::cout << "Loaded AuxGraph from cache!\n";
+        return 0;
+    }
+
+    std::cout << "Creating new empty AuxGraph.\n";
+
     aux.constructFrom(k, AUXGRAPH_COLUMN_COUNT, &adj, &mem);
     if (aux.configCount == 0) {
         std::cerr << "Error: Unable to generate aux graph.\n";
@@ -284,7 +295,7 @@ bool mainLoop() {
 
 }
 
-bool findFinalResult(int k) {
+bool findFinalResult() {
 
     std::cout << "\n--- FINAL VERDICT ---\n";
 
@@ -343,92 +354,16 @@ bool findFinalResult(int k) {
 
 }
 
-bool outputData(const char* filename, int k) {
+bool outputData() {
 
-    std::cout << "\nPreparing data for binary export...\n";
-
-    // Calculate section byte sizes
-    uint64_t configsSize    = static_cast<uint64_t>(aux.configCount) * aux.k * sizeof(uint8_t);
-    uint64_t transHeadsSize = static_cast<uint64_t>(aux.configCount + 1) * sizeof(size_t);
-    uint64_t transDataSize  = static_cast<uint64_t>(aux.transitions.size()) * sizeof(size_t);
-    uint64_t statesSize     = static_cast<uint64_t>(aux.numStates) * sizeof(DataItem);
-    uint64_t edgesSize      = static_cast<uint64_t>(adj.nodeCount) * adj.maxDegree * sizeof(uint8_t);
-
-    // Define the static header size (10 fields * 8 bytes = 80 bytes)
-    uint64_t headerSize = 10 * sizeof(uint64_t);
-
-    // Calculate absolute byte offsets for the start of each section
-    uint64_t sec1_offset = headerSize;
-    uint64_t sec2_offset = sec1_offset + configsSize;
-    uint64_t sec3_offset = sec2_offset + transHeadsSize;
-    uint64_t sec4_offset = sec3_offset + transDataSize;
-    uint64_t sec5_offset = sec4_offset + statesSize;
-    
-    // Total size is the end of the last section
-    uint64_t totalBlobSize = sec5_offset + edgesSize;
-
-    // Allocate the fat blob
-    uint8_t* fatBlob = new uint8_t[totalBlobSize];
-    if (!fatBlob) {
-        std::cerr << "Error: Failed to allocate " << totalBlobSize << " bytes for binary blob.\n";
+    std::cout << "Saving filled AuxGraph to cache... ";
+    bool failed = CacheManager::saveAuxGraph<DataItem>("k_cops", filename, k, &aux);
+    if (failed) {
+        std::cout << "Failed!\n";
         return 1;
     }
 
-    // Populate the static 80-byte header
-    uint64_t header[10] = {
-        static_cast<uint64_t>(aux.k),
-        static_cast<uint64_t>(aux.N),
-        static_cast<uint64_t>(aux.configCount),
-        static_cast<uint64_t>(aux.numStates),
-        static_cast<uint64_t>(sizeof(DataItem)),
-        sec1_offset, // configs
-        sec2_offset, // transitionHeads
-        sec3_offset, // transitions
-        sec4_offset, // states
-        sec5_offset  // edges
-    };
-
-    // Write header to the very beginning
-    std::memcpy(fatBlob, header, headerSize);
-
-    // Write flat arrays directly to their designated offsets
-    std::memcpy(fatBlob + sec1_offset, aux.configs, configsSize);
-    std::memcpy(fatBlob + sec2_offset, aux.transitionHeads, transHeadsSize);
-    std::memcpy(fatBlob + sec3_offset, aux.transitions.data(), transDataSize);
-    std::memcpy(fatBlob + sec4_offset, aux.states, statesSize);
-    std::memcpy(fatBlob + sec5_offset, adj.getEdges(0), edgesSize);
-
-    double blobMB = static_cast<double>(totalBlobSize) / (1024.0 * 1024.0);
-    std::cout << "Successfully packed " << blobMB << " MB into the binary blob.\n";
-
-
-    // Extract just the base filename from the relative path
-    // Using .stem() turns "../assets/matrics/graph.txt" into just "graph"
-    std::string cleanName = std::filesystem::path(filename).stem().string();
-
-    // Construct the final string
-    std::string outName = "out/k_cops-output__" + cleanName + "__k-" + std::to_string(k) + ".bin";
-
-    // Extract the directory path ("out")
-    std::filesystem::path filePath(outName);
-    std::filesystem::path dirPath("out");
-
-    // Create the directory if it doesn't exist
-    if (!dirPath.empty() && !std::filesystem::exists(dirPath)) {
-        std::error_code ec;
-        std::filesystem::create_directories(dirPath, ec);
-        
-        if (ec) {
-            std::cerr << "Error: Failed to create directory '" << dirPath.string() 
-                    << "' (" << ec.message() << ")\n";
-        }
-    }
-
-    // Pass it to your fileio function
-    if (createFile(outName.c_str(), fatBlob, totalBlobSize)) {
-        std::cout << "Failed to write to file!\n";
-        return 1;
-    }
+    std::cout << "Success!\n";
 
     return 0;
 
