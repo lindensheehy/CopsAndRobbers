@@ -1,0 +1,16 @@
+Programming:
+- the two rules from the email
+    - (cops can stay still : robbers can stay still)
+    - set them to CANT STAY STILL for our purposes
+- tokens:
+    - no black tokens
+    - robber must follow cops moves
+        - pruning some edges and duplicating some nodes
+        - moves will be strictly forced (otherwise this logic falls apart)
+        - if the robber cant move, THEY LOSE
+
+Brainstorm:
+- what could we do if the robber has one black token?
+
+Next Metting:
+Tuesday may 26th 12-1 online
