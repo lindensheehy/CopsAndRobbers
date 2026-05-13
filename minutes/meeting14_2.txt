@@ -1,0 +1,29 @@
+we drew 4 columns for half visible and for 1/3 visible there are 6 columns, 
+so that is settled, one thing that is recently found: 
+when you have more than 2 columns the edges will be the same in terms of memory, so we 
+make from robber to cops and cops to robbers, and you can re-use these edges, 
+and in the middle its a 1 to 1 mapping. We can use any value of p (which is 1/p visibility)
+and we can save some memory. For next time it would be nice to draw the 6 columns,
+So for tokens we are going to make the tokens first on full visibility graph, 
+The cleaning of code been mostly done.
+
+For the tokens we need to break it down into simpler subproblems, 
+for example there are no black tokens for the robber,
+the robber has to follow same type of edge, 
+using the black tokens - you can break this rule 5 times but for now we 
+do not need to consider. For now for tokens we just see if we can solve just cop used 
+and robber used. 
+to do that we need to modify aux graph, so if we have a node from which we can use 
+a taxi, but then we reach a state in aux graph where a robber is FORCED to use a taxi, 
+so from the node (second column) - if there is a taxi edge than this is what the robber has to use - we need to enforce the rule so we can prune the edges sometimes, but sometimes 
+we can be doubling (explanation: so we have 4 possibilities ( we ignoring metro lines)
+
+we want to see where we move from cops to robber (cops move), there is the node where the 
+cop is and it is cops turn to play, so from the cop you can have either a taxi edge, a bus edge, or both, and for robber same thing, so if the cop has only a taxi edge, and then when I reach into the robbers column - I need to enforce the taxi edge. There will be bus edge and taxi edge - so we force the robber to use the bus etc. So we can enforce moves and its 4 cases. If the cop has options - we duplicate the node and prune the edges so there is a choice, and that enforces a rule and we have that in aux graph. Like basic idea we gotta get 4 possibilities, if there is 2 edges (both train and taxi) we duplicate node so that there is a path just through the taxi and just through train. That would be the first step - if everything else is done that should be done. So this is for the case of moves are enforced - so robber does not just stand in one place and hog the tokens, we still NEED this parameter to be able to stay or no (edges to itself) but while dealing with the tokens we enforce a move, (can we enforce movement FOR NOW because once we will be taking care of black tokens we can consider edges to ourselves as the "free token" to just stay. But thats later) 
+and then we need the solver to take care of endpoints (where robber can not go anywhere) The new solver is after we pruned the edges and made a graph from aux graph, you need to figure out if we need to take care of dead ends - but it probably will not be a problem. 
+And THEN we see how do we handle black tokens. 
+For now the rules for tokens are restricted, just to get started. We need to finalize 1/p (p amont of moves robber is invisible). Thats what we are looking at.
+
+For brainstorm part: what to do if robber has ONE black token with the enforced rules - just a new starting point for the wildcard tokens. 
+
+So the next meeting: 12 to 1 on May 26th (online)
