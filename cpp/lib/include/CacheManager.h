@@ -12,23 +12,24 @@ class CacheManager {
 
 public:
 
-    // Generates the deterministic cache file path
-    static std::string buildCacheKey(const std::string& type, const std::string& algoName, const std::string& graphName, int k) {
+    // Added 'int p' to the signature
+    static std::string buildCacheKey(const std::string& type, const std::string& algoName, const std::string& graphName, int k, int p) {
         std::string dir = "cache/";
         if (!std::filesystem::exists(dir)) {
             std::filesystem::create_directories(dir);
         }
         
-        // Extract just "scotlandyard-all" from "assets/matrices/scotlandyard-all.txt"
         std::string cleanName = std::filesystem::path(graphName).stem().string();
         
-        return dir + algoName + "__" + cleanName + "__" + std::to_string(k) + "-cops__" + type + ".bin";
+        // Injected 'p' into the deterministic file name
+        return dir + algoName + "__" + cleanName + "__" + std::to_string(k) + "-cops__" + std::to_string(p) + "-vis__" + type + ".bin";
     }
 
     template <typename T>
-    static bool saveAuxGraph(const std::string& algoName, const std::string& graphName, int k, AuxGraph<T>* inGraph) {
+    static bool saveAuxGraph(const std::string& algoName, const std::string& graphName, int k, int p, AuxGraph<T>* inGraph) {
 
-        std::string filepath = buildCacheKey("auxgraph", algoName, graphName, k);
+        // Pass 'p' down to buildCacheKey
+        std::string filepath = buildCacheKey("auxgraph", algoName, graphName, k, p);
 
         // Calculate section byte sizes
         uint64_t configsSize    = static_cast<uint64_t>(inGraph->configCount) * inGraph->k * sizeof(uint8_t);
@@ -36,7 +37,6 @@ public:
         uint64_t transDataSize  = static_cast<uint64_t>(inGraph->transitions.size()) * sizeof(size_t);
         uint64_t statesSize     = static_cast<uint64_t>(inGraph->numStates) * sizeof(T);
 
-        // Change headerSize to 10 fields (80 bytes)
         uint64_t headerSize = 10 * sizeof(uint64_t); 
                 
         uint64_t sec1_offset = headerSize;
@@ -48,7 +48,6 @@ public:
         // Allocate contiguous blob
         uint8_t* blob = new uint8_t[totalBlobSize];
 
-        // Add 'columns' to the array and shift the offsets
         uint64_t header[10] = {
             static_cast<uint64_t>(inGraph->k),
             static_cast<uint64_t>(inGraph->N),
@@ -75,9 +74,10 @@ public:
     }
 
     template <typename T>
-    static bool loadAuxGraph(const std::string& algoName, const std::string& graphName, int k, AuxGraph<T>* outGraph, Allocator* mem, const AdjacencyList* adj) {
+    static bool loadAuxGraph(const std::string& algoName, const std::string& graphName, int k, int p, AuxGraph<T>* outGraph, Allocator* mem, const AdjacencyList* adj) {
 
-        std::string filepath = buildCacheKey("auxgraph", algoName, graphName, k);
+        // Pass 'p' down to buildCacheKey
+        std::string filepath = buildCacheKey("auxgraph", algoName, graphName, k, p);
 
         uintmax_t fileSize = 0;
         uint8_t* blob = readFile(filepath.c_str(), &fileSize);
@@ -87,9 +87,15 @@ public:
 
         uint64_t* header = reinterpret_cast<uint64_t*>(blob);
 
-        // Sanity check: Ensure the cached DataItem matches our current compiled DataItem size
         if (header[5] != sizeof(T)) {
-            std::cerr << "Cache type mismatch: Cached size " << header[4] << " vs Current " << sizeof(T) << "\n";
+            std::cerr << "Cache type mismatch: Cached size " << header[5] << " vs Current " << sizeof(T) << "\n";
+            delete[] blob;
+            return 1;
+        }
+
+        // Sanity check: Ensure the cached columns match our requested 2 * p
+        if (header[2] != static_cast<uint64_t>(p * 2)) {
+            std::cerr << "Cache visibility mismatch: Cached columns " << header[2] << " vs Requested " << (p * 2) << "\n";
             delete[] blob;
             return 1;
         }

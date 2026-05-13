@@ -96,7 +96,9 @@ struct DataItem {
     uint8_t marked : 1;
     uint8_t markedRound : 7;
 };
-constexpr int AUXGRAPH_COLUMN_COUNT = 2;
+
+constexpr int P_VALUE = 1;
+constexpr int AUXGRAPH_COLUMN_COUNT = P_VALUE * 2;
 constexpr int COPS_TURN = 0;
 constexpr int ROBBERS_TURN = 1;
 
@@ -110,7 +112,7 @@ AdjacencyList adj;
 AuxGraph<DataItem> aux;
 
 
-bool loadGraphFile(const char* filename_param, int k_param) {
+bool loadGraphFile(const char* filename_param, int k_param, int p_param) {
 
     filename = filename_param;
     k = k_param;
@@ -131,7 +133,7 @@ bool loadGraphFile(const char* filename_param, int k_param) {
 
 bool buildAuxGraph() {
 
-    bool failed = CacheManager::loadAuxGraph<DataItem>("k_cops", filename, k, &aux, &mem, &adj);
+    bool failed = CacheManager::loadAuxGraph<DataItem>("k_cops", filename, k, P_VALUE, &aux, &mem, &adj);
     if (!failed) {
         std::cout << "Loaded AuxGraph from cache!\n";
         return 0;
@@ -357,7 +359,7 @@ bool findFinalResult() {
 bool outputData() {
 
     std::cout << "Saving filled AuxGraph to cache... ";
-    bool failed = CacheManager::saveAuxGraph<DataItem>("k_cops", filename, k, &aux);
+    bool failed = CacheManager::saveAuxGraph<DataItem>("k_cops", filename, k, P_VALUE, &aux);
     if (failed) {
         std::cout << "Failed!\n";
         return 1;

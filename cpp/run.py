@@ -36,6 +36,7 @@ class MasterApp:
         
         self.graph_entry = None
         self.cops_entry = None
+        self.p_entry = None  # NEW: Initialize the p-value entry
 
         # --- Bottom Section: Buttons ---
         btn_frame = tk.Frame(root)
@@ -97,6 +98,7 @@ class MasterApp:
         # Retrieve cached values or set defaults
         cached_graph = self.input_cache.get(tool_name, {}).get("Graph File", "")
         cached_cops = self.input_cache.get(tool_name, {}).get("Number of Cops", "1")
+        cached_p = self.input_cache.get(tool_name, {}).get("Visibility (p)", "1") # NEW: Get cached p value
 
         # -- Graph File Row --
         row1 = tk.Frame(self.arg_frame)
@@ -120,6 +122,16 @@ class MasterApp:
         self.cops_entry.delete(0, "end")
         self.cops_entry.insert(0, cached_cops)
         self.cops_entry.pack(side=tk.LEFT, padx=5)
+
+        # -- Visibility (p) Row --
+        row3 = tk.Frame(self.arg_frame)
+        row3.pack(fill=tk.X, pady=4)
+        tk.Label(row3, text="Visibility (p)", width=15, anchor='w').pack(side=tk.LEFT)
+        
+        self.p_entry = tk.Spinbox(row3, from_=1, to=20, width=5)
+        self.p_entry.delete(0, "end")
+        self.p_entry.insert(0, cached_p)
+        self.p_entry.pack(side=tk.LEFT, padx=5)
 
     def browse_file(self, entry_widget, file_pattern, tool_name, label_text):
         init_dir = DEFAULT_ASSET_DIR if os.path.exists(DEFAULT_ASSET_DIR) else "."
@@ -156,9 +168,10 @@ class MasterApp:
         
         graph_val = self.graph_entry.get().strip()
         cops_val = self.cops_entry.get().strip()
+        p_val = self.p_entry.get().strip() # NEW: Grab the p value
 
-        if not graph_val or not cops_val:
-            messagebox.showwarning("Warning", "Both Graph File and Number of Cops are required.")
+        if not graph_val or not cops_val or not p_val:
+            messagebox.showwarning("Warning", "Graph File, Number of Cops, and Visibility are required.")
             return
             
         # Save exact current inputs to cache
@@ -166,10 +179,11 @@ class MasterApp:
             self.input_cache[tool_name] = {}
         self.input_cache[tool_name]["Graph File"] = graph_val
         self.input_cache[tool_name]["Number of Cops"] = cops_val
+        self.input_cache[tool_name]["Visibility (p)"] = p_val # NEW: Cache the p value
         self.save_input_cache()
         
-        # Hardcoded argument structure
-        cmd = [tool_rel_path, graph_val, cops_val]
+        # Hardcoded argument structure with the new p_val appended
+        cmd = [tool_rel_path, graph_val, cops_val, p_val]
         
         print(f"\nExecuting: {' '.join(cmd)}")
         

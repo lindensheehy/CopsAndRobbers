@@ -19,8 +19,9 @@
     },
     "k_cops.exe": {
         "Adjacency Matrix": "assets\\matrices\\scotlandyard-yellow.txt",
-        "Number of Cops": "3",
-        "Graph File": "..\\assets\\matrices\\scotlandyard-all.txt"
+        "Number of Cops": "2",
+        "Graph File": "..\\assets\\matrices\\scotlandyard-all.txt",
+        "Visibility (p)": "1"
     },
     "k_cops_2.exe": {
         "Adjacency Matrix": "assets\\matrices\\scotlandyard-all.txt",
@@ -51,5 +52,10 @@
     "visualizer.py": {
         "Adjacency Matrix": "assets\\matrices\\scotlandyard-all.txt",
         "Positions (Optional)": "assets\\positions\\scotlandyard.txt"
+    },
+    "k_cops_visibility.exe": {
+        "Graph File": "..\\assets\\matrices\\scotlandyard-all.txt",
+        "Number of Cops": "2",
+        "Visibility (p)": "1"
     }
 }

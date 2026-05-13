@@ -55,19 +55,6 @@
             ]
         ]
     },
-    "k_cops_alternating.exe": {
-        "mtime": 1775607603.4691494,
-        "args": [
-            [
-                "Graph File",
-                "*.txt"
-            ],
-            [
-                "Number of Cops",
-                "int"
-            ]
-        ]
-    },
     "k_cops_rounds.exe": {
         "mtime": 1775607748.453863,
         "args": [
