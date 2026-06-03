@@ -13,31 +13,31 @@ class CacheManager {
 public:
 
     // Added 'int p' to the signature
-    static std::string buildCacheKey(const std::string& type, const std::string& algoName, const std::string& graphName, int k, int p) {
+    static std::string buildCacheKey(const std::string& type, const std::string& algoName, const std::string& graphName, int k, int p, SelfEdgeCop c, SelfEdgeRobber r) {
         std::string dir = "cache/";
         if (!std::filesystem::exists(dir)) {
             std::filesystem::create_directories(dir);
         }
         
         std::string cleanName = std::filesystem::path(graphName).stem().string();
+        std::string flags = (c == SelfEdgeCop::TRUE ? "1" : "0") + std::string(r == SelfEdgeRobber::TRUE ? "1" : "0");
         
-        // Injected 'p' into the deterministic file name
-        return dir + algoName + "__" + cleanName + "__" + std::to_string(k) + "-cops__" + std::to_string(p) + "-vis__" + type + ".bin";
+        return dir + algoName + "__" + cleanName + "__" + std::to_string(k) + "-cops__" + std::to_string(p) + "-vis__" + flags + "__" + type + ".bin";
     }
 
     template <typename T>
-    static bool saveAuxGraph(const std::string& algoName, const std::string& graphName, int k, int p, AuxGraph<T>* inGraph) {
+    static bool saveAuxGraph(const std::string& algoName, const std::string& graphName, int k, int p, SelfEdgeCop c, SelfEdgeRobber r, AuxGraph<T>* inGraph) {
 
-        // Pass 'p' down to buildCacheKey
-        std::string filepath = buildCacheKey("auxgraph", algoName, graphName, k, p);
+        std::string filepath = buildCacheKey("auxgraph", algoName, graphName, k, p, c, r);
 
-        // Calculate section byte sizes
+        // Calculate section byte sizes (same as before)
         uint64_t configsSize    = static_cast<uint64_t>(inGraph->configCount) * inGraph->k * sizeof(uint8_t);
         uint64_t transHeadsSize = static_cast<uint64_t>(inGraph->configCount + 1) * sizeof(size_t);
         uint64_t transDataSize  = static_cast<uint64_t>(inGraph->transitions.size()) * sizeof(size_t);
         uint64_t statesSize     = static_cast<uint64_t>(inGraph->numStates) * sizeof(T);
 
-        uint64_t headerSize = 10 * sizeof(uint64_t); 
+        // Expanded to 12 fields (96 bytes)
+        uint64_t headerSize = 12 * sizeof(uint64_t); 
                 
         uint64_t sec1_offset = headerSize;
         uint64_t sec2_offset = sec1_offset + configsSize;
@@ -45,16 +45,17 @@ public:
         uint64_t sec4_offset = sec3_offset + transDataSize;
         uint64_t totalBlobSize = sec4_offset + statesSize;
 
-        // Allocate contiguous blob
         uint8_t* blob = new uint8_t[totalBlobSize];
 
-        uint64_t header[10] = {
+        uint64_t header[12] = {
             static_cast<uint64_t>(inGraph->k),
             static_cast<uint64_t>(inGraph->N),
             static_cast<uint64_t>(inGraph->columns),
             static_cast<uint64_t>(inGraph->configCount),
             static_cast<uint64_t>(inGraph->numStates),
             static_cast<uint64_t>(sizeof(T)),
+            static_cast<uint64_t>(inGraph->copSelfEdges == SelfEdgeCop::TRUE ? 1 : 0),
+            static_cast<uint64_t>(inGraph->robberSelfEdges == SelfEdgeRobber::TRUE ? 1 : 0),
             sec1_offset, sec2_offset, sec3_offset, sec4_offset
         };
 
@@ -74,28 +75,22 @@ public:
     }
 
     template <typename T>
-    static bool loadAuxGraph(const std::string& algoName, const std::string& graphName, int k, int p, AuxGraph<T>* outGraph, Allocator* mem, const AdjacencyList* adj) {
+    static bool loadAuxGraph(const std::string& algoName, const std::string& graphName, int k, int p, SelfEdgeCop reqCop, SelfEdgeRobber reqRobber, AuxGraph<T>* outGraph, Allocator* mem, const AdjacencyList* adj) {
 
-        // Pass 'p' down to buildCacheKey
-        std::string filepath = buildCacheKey("auxgraph", algoName, graphName, k, p);
+        std::string filepath = buildCacheKey("auxgraph", algoName, graphName, k, p, reqCop, reqRobber);
 
         uintmax_t fileSize = 0;
         uint8_t* blob = readFile(filepath.c_str(), &fileSize);
-        
-        // Cache miss
         if (!blob) return 1; 
 
         uint64_t* header = reinterpret_cast<uint64_t*>(blob);
 
-        if (header[5] != sizeof(T)) {
-            std::cerr << "Cache type mismatch: Cached size " << header[5] << " vs Current " << sizeof(T) << "\n";
-            delete[] blob;
-            return 1;
-        }
+        uint64_t expectedCop = (reqCop == SelfEdgeCop::TRUE) ? 1 : 0;
+        uint64_t expectedRobber = (reqRobber == SelfEdgeRobber::TRUE) ? 1 : 0;
 
-        // Sanity check: Ensure the cached columns match our requested 2 * p
-        if (header[2] != static_cast<uint64_t>(p * 2)) {
-            std::cerr << "Cache visibility mismatch: Cached columns " << header[2] << " vs Requested " << (p * 2) << "\n";
+        // Security check
+        if (header[6] != expectedCop || header[7] != expectedRobber) {
+            std::cerr << "Cache rules mismatch: Cached SelfEdges [" << header[6] << header[7] << "] vs Requested [" << expectedCop << expectedRobber << "]\n";
             delete[] blob;
             return 1;
         }
@@ -110,10 +105,10 @@ public:
         outGraph->mem = mem;
         outGraph->adj = adj;
 
-        uint64_t sec1_offset = header[6];
-        uint64_t sec2_offset = header[7];
-        uint64_t sec3_offset = header[8];
-        uint64_t sec4_offset = header[9];
+        uint64_t sec1_offset = header[8];
+        uint64_t sec2_offset = header[9];
+        uint64_t sec3_offset = header[10];
+        uint64_t sec4_offset = header[11];
 
         // 1. Calculate precise byte sizes directly from the header offsets
         size_t configsBytes     = sec2_offset - sec1_offset;

@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * FILE --- k_cops_alternating_impl.cpp (Included via ALGORITHM_INCLUDE)
+ * FILE --- k_cops_alternating.cpp
  * ============================================================================
  */
 
@@ -56,10 +56,13 @@ bool loadGraphFile(const char* filename_param, int k_param, int p_param) {
 }
 
 bool buildAuxGraph() {
-
     std::string algoName = "k_cops_" + std::to_string(p) + "vis";
 
-    bool failed = CacheManager::loadAuxGraph<DataItem>(algoName, filename, k, p, &aux, &mem, &adj);
+    // Set project configuration here
+    SelfEdgeCop c_edge = SelfEdgeCop::FALSE;
+    SelfEdgeRobber r_edge = SelfEdgeRobber::FALSE;
+
+    bool failed = CacheManager::loadAuxGraph<DataItem>(algoName, filename, k, p, c_edge, r_edge, &aux, &mem, &adj);
     
     if (!failed) {
         std::cout << "Loaded AuxGraph from cache!\n";
@@ -68,18 +71,21 @@ bool buildAuxGraph() {
 
     std::cout << "Cache miss. Creating new AuxGraph with " << columns << " columns...\n";
 
+    aux.setSelfEdges(c_edge, r_edge);
     aux.constructFrom(k, columns, &adj, &mem);
     
     if (aux.configCount == 0) {
         std::cerr << "Error: Unable to generate aux graph.\n";
         return 1;
     }
-    
     return 0;
-
 }
 
 bool initializeCaptures() {
+
+    /*
+        This function should be correct. Verify if necessary
+    */
 
     uint64_t initialWins = 0;
 
@@ -88,20 +94,20 @@ bool initializeCaptures() {
             
             bool caught = aux.isInstantCatch(cId, r);
 
-            for (int col = 0; col < columns; ++col) {
-                DataItem* state = aux.getState(cId, r, col);
-                
-                if (caught && col < 2) {
-                    state->marked = true;
-                    state->markedRound = 0;
-                } else {
-                    state->marked = false;
-                    state->markedRound = MAX_ROUND_COUNT;
-                }
-            }
+            DataItem* state0 = aux.getState(cId, r, 0);
+            DataItem* state1 = aux.getState(cId, r, 1);
 
             if (caught) {
-                initialWins++; 
+                state0->marked = true;
+                state0->markedRound = 0;
+                state1->marked = true;
+                state1->markedRound = 0;
+                initialWins++;
+            } else {
+                state0->marked = false;
+                state0->markedRound = MAX_ROUND_COUNT;
+                state1->marked = false;
+                state1->markedRound = MAX_ROUND_COUNT;
             }
             
         }
@@ -110,10 +116,11 @@ bool initializeCaptures() {
     std::cout << "Initialized " << initialWins << " base captures.\n";
 
     return 0;
+
 }
 
 bool mainLoop() {
-    
+
     std::cout << "Starting Backward Induction Loop for " << p << "-Visibility...\n";
 
     int passes = 0;
@@ -128,32 +135,86 @@ bool mainLoop() {
         newWinsThisPass = 0;
 
         for (int col = 0; col < columns; ++col) {
-            
+
             int next_col = (col + 1) % columns;
-            
-            bool isCopTurn = (col % 2 == 0); 
 
-            for (size_t cId = 0; cId < aux.configCount; ++cId) {
-                
-                aux.getCopTransitions(cId, copTransStart, copTransEnd);
+            bool isCopTurn = (col % 2 == 0);
+            bool isBlindCopTurn = isCopTurn && (col > 0);
 
-                for (int r = 0; r < adj.nodeCount; ++r) {
-                    
-                    state = aux.getState(cId, r, col);
-                    
-                    if (state->marked) continue;
+            // --- BLIND COP TURN (col > 0, even) ---
+            // Cops cannot see the robber, so they must commit to a single transition
+            // that works for ALL robber positions simultaneously.
+            if (isBlindCopTurn) {
 
-                    // --- COP'S TURN ---
-                    if (isCopTurn) {
+                for (size_t cId = 0; cId < aux.configCount; ++cId) {
+
+                    // Early-out: skip if all (cId, *, col) already marked
+                    bool skip = true;
+                    for (int r = 0; r < adj.nodeCount; ++r) {
+                        if (!aux.getState(cId, r, col)->marked) { skip = false; break; }
+                    }
+                    if (skip) continue;
+
+                    aux.getCopTransitions(cId, copTransStart, copTransEnd);
+
+                    // Find the best uniform transition: minimize worst-case markedRound across all r
+                    size_t bestTransOffset = (size_t)-1;
+                    uint8_t bestMax = 0;
+
+                    for (size_t i = copTransStart; i < copTransEnd; ++i) {
+                        size_t nextConfigN = aux.transitions[i];
+                        bool allMarked = true;
+                        uint8_t maxRound = 0;
+
+                        for (int r = 0; r < adj.nodeCount; ++r) {
+                            nextState = &(aux.states[(nextConfigN + r) * columns + next_col]);
+                            if (!nextState->marked) { allMarked = false; break; }
+                            if (nextState->markedRound > maxRound) maxRound = nextState->markedRound;
+                        }
+
+                        if (allMarked) {
+                            if (bestTransOffset == (size_t)-1 || maxRound < bestMax) {
+                                bestMax = maxRound;
+                                bestTransOffset = nextConfigN;
+                            }
+                        }
+                    }
+
+                    if (bestTransOffset != (size_t)-1) {
+                        for (int r = 0; r < adj.nodeCount; ++r) {
+                            state = aux.getState(cId, r, col);
+                            if (!state->marked) {
+                                nextState = &(aux.states[(bestTransOffset + r) * columns + next_col]);
+                                state->marked = true;
+                                state->markedRound = nextState->markedRound + 1;
+                                newWinsThisPass++;
+                            }
+                        }
+                    }
+                }
+
+            }
+
+            // --- VISIBLE COP TURN (col == 0) ---
+            // Cops can see the robber, so they pick the best transition per r independently.
+            else if (isCopTurn) {
+
+                for (size_t cId = 0; cId < aux.configCount; ++cId) {
+
+                    aux.getCopTransitions(cId, copTransStart, copTransEnd);
+
+                    for (int r = 0; r < adj.nodeCount; ++r) {
+
+                        state = aux.getState(cId, r, col);
+
+                        if (state->marked) continue;
+
                         uint8_t minRounds = MAX_ROUND_COUNT;
                         bool winFound = false;
 
                         for (size_t i = copTransStart; i < copTransEnd; ++i) {
-                            
-                            // FIX: aux.transitions[i] is ALREADY pre-multiplied by N.
-                            // We bypass getState() and access the raw states array directly.
                             nextState = &(aux.states[(aux.transitions[i] + r) * columns + next_col]);
-                            
+
                             if (nextState->marked) {
                                 winFound = true;
                                 if (nextState->markedRound < minRounds) minRounds = nextState->markedRound;
@@ -165,26 +226,39 @@ bool mainLoop() {
                             state->markedRound = minRounds + 1;
                             newWinsThisPass++;
                         }
-
                     }
+                }
 
-                    // --- ROBBER'S TURN ---
-                    else {
+            }
+
+            // --- ROBBER'S TURN ---
+            // Robber always has full information, so per-r logic is correct at every column.
+            else {
+
+                for (size_t cId = 0; cId < aux.configCount; ++cId) {
+                    for (int r = 0; r < adj.nodeCount; ++r) {
+
+                        state = aux.getState(cId, r, col);
+
+                        if (state->marked) continue;
+
                         uint8_t maxRounds = 0;
                         bool canEscape = false;
 
-                        nextState = aux.getState(cId, r, next_col);
-                        if (!nextState->marked) {
-                            canEscape = true;
-                        } else {
-                            maxRounds = nextState->markedRound;
+                        if (aux.robberSelfEdges == SelfEdgeRobber::TRUE) {
+                            nextState = aux.getState(cId, r, next_col);
+                            if (!nextState->marked) {
+                                canEscape = true;
+                            } else {
+                                maxRounds = nextState->markedRound;
+                            }
                         }
 
                         if (!canEscape) {
                             rEdges = adj.getEdges(r);
                             for (int e = 0; rEdges[e] != 255; e++) {
                                 nextState = aux.getState(cId, rEdges[e], next_col);
-                                
+
                                 if (!nextState->marked) {
                                     canEscape = true;
                                     break;
@@ -201,6 +275,7 @@ bool mainLoop() {
                         }
                     }
                 }
+
             }
         }
 
@@ -273,7 +348,7 @@ bool outputData() {
 
     std::cout << "Saving filled AuxGraph to cache... ";
     
-    bool failed = CacheManager::saveAuxGraph<DataItem>(algoName, filename, k, p, &aux);
+    bool failed = CacheManager::saveAuxGraph<DataItem>(algoName, filename, k, p, SelfEdgeCop::FALSE, SelfEdgeRobber::FALSE, &aux);
     
     if (failed) {
         std::cout << "Failed!\n";

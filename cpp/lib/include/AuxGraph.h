@@ -11,6 +11,9 @@
 // Maximum supported number of cops to prevent stack overflow during generation
 constexpr size_t MAX_COPS = 256;
 
+enum class SelfEdgeCop { TRUE, FALSE };
+enum class SelfEdgeRobber { TRUE, FALSE };
+
 template <typename StateData>
 class AuxGraph {
 
@@ -32,6 +35,10 @@ public:
     const AdjacencyList* adj;
     Allocator* mem;
 
+    SelfEdgeCop copSelfEdges = SelfEdgeCop::FALSE;
+    SelfEdgeRobber robberSelfEdges = SelfEdgeRobber::FALSE;
+    bool isConstructed = false;
+
     AuxGraph() : k(0), N(0), columns(0), configCount(0), numStates(0), configs(nullptr), 
           transitionHeads(nullptr), states(nullptr), adj(nullptr), mem(nullptr) {}
 
@@ -50,7 +57,6 @@ public:
 
     // Deferred constructor
     void constructFrom(int k, int columns, const AdjacencyList* adj, Allocator* mem) {
-
         if (mem == nullptr || adj == nullptr) return;
 
         this->k = k;
@@ -59,7 +65,6 @@ public:
         this->adj = adj;
         this->mem = mem;
 
-        // 1. Generate Configurations
         this->generateCopConfigs();
         
         if (this->configCount == 0) return;
@@ -68,9 +73,21 @@ public:
         this->mem->requestAlloc<StateData>("AuxGraph Per State Data", this->numStates, &this->states);
         this->mem->allocate();
 
-        // 3. Build the Transition Table
         this->createTransitions();
 
+        this->isConstructed = true; 
+    }
+
+    void setSelfEdges(SelfEdgeCop c, SelfEdgeRobber r) {
+        if (this->isConstructed) {
+            std::cerr << "\n======================================================================\n";
+            std::cerr << "[FATAL ERROR]: AuxGraph::setSelfEdges() called AFTER constructFrom()!\n";
+            std::cerr << "The transition table is already built. Ignoring to prevent corruption.\n";
+            std::cerr << "======================================================================\n\n";
+            return;
+        }
+        this->copSelfEdges = c;
+        this->robberSelfEdges = r;
     }
 
     // --- Core Accessors ---
@@ -180,8 +197,12 @@ private:
             
             for (int i = 0; i < this->k; i++) {
                 uint8_t u = currentCops[i];
-                options[i][0] = u; 
-                int count = 1;
+                int count = 0;
+                
+                // 4. Conditionally add the Cop's self-edge
+                if (this->copSelfEdges == SelfEdgeCop::TRUE) {
+                    options[i][count++] = u; 
+                }
                 
                 uint8_t* edges = this->adj->getEdges(u);
                 int eIdx = 0;
