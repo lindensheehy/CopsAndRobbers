@@ -56,6 +56,6 @@
     "k_cops_visibility.exe": {
         "Graph File": "..\\assets\\matrices\\scotlandyard-all.txt",
         "Number of Cops": "2",
-        "Visibility (p)": "10"
+        "Visibility (p)": "2"
     }
 }

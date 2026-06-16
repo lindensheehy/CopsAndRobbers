@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <vector>
 #include <string>
+#include <algorithm>
 
 // --- DP STATE DEFINITION ---
 struct DataItem {
@@ -129,6 +130,8 @@ bool mainLoop() {
     DataItem* state;
     DataItem* nextState;
     uint8_t* rEdges;
+    std::vector<uint8_t> bfs_current(adj.nodeCount, 0);
+    std::vector<uint8_t> bfs_next(adj.nodeCount, 0);
 
     while (true) {
         passes++;
@@ -231,49 +234,85 @@ bool mainLoop() {
 
             }
 
-            // --- ROBBER'S TURN ---
-            // Robber always has full information, so per-r logic is correct at every column.
+            // --- ROBBER'S TURN (odd cols) ---
             else {
 
-                for (size_t cId = 0; cId < aux.configCount; ++cId) {
-                    for (int r = 0; r < adj.nodeCount; ++r) {
+                // Intermediate invisible robber turn: DIRECT IF.
+                // The state has exactly one outgoing edge (incrementing the column), so the AND
+                // node collapses to a single check against the same (cId, r) at the next column.
+                if (col > 1 && col < columns - 1) {
 
-                        state = aux.getState(cId, r, col);
+                    for (size_t cId = 0; cId < aux.configCount; ++cId) {
+                        for (int r = 0; r < adj.nodeCount; ++r) {
 
-                        if (state->marked) continue;
+                            state = aux.getState(cId, r, col);
+                            if (state->marked) continue;
 
-                        uint8_t maxRounds = 0;
-                        bool canEscape = false;
-
-                        if (aux.robberSelfEdges == SelfEdgeRobber::TRUE) {
                             nextState = aux.getState(cId, r, next_col);
-                            if (!nextState->marked) {
-                                canEscape = true;
-                            } else {
-                                maxRounds = nextState->markedRound;
+                            if (nextState->marked) {
+                                state->marked = true;
+                                state->markedRound = nextState->markedRound + 1;
+                                newWinsThisPass++;
                             }
-                        }
-
-                        if (!canEscape) {
-                            rEdges = adj.getEdges(r);
-                            for (int e = 0; rEdges[e] != 255; e++) {
-                                nextState = aux.getState(cId, rEdges[e], next_col);
-
-                                if (!nextState->marked) {
-                                    canEscape = true;
-                                    break;
-                                } else {
-                                    if (nextState->markedRound > maxRounds) maxRounds = nextState->markedRound;
-                                }
-                            }
-                        }
-
-                        if (!canEscape) {
-                            state->marked = true;
-                            state->markedRound = maxRounds + 1;
-                            newWinsThisPass++;
                         }
                     }
+
+                }
+
+                // Visible robber turn (col == 1) or max col boundary (col == columns - 1):
+                // Expand exactly (col+1)/2 hops from r (= ceil(col/2)) and AND-check all
+                // reachable vertices against next_col. For p=1 these two cases coincide.
+                else {
+
+                    int depth = (col + 1) / 2;
+
+                    for (size_t cId = 0; cId < aux.configCount; ++cId) {
+                        for (int r = 0; r < adj.nodeCount; ++r) {
+
+                            state = aux.getState(cId, r, col);
+                            if (state->marked) continue;
+
+                            // BFS: vertices reachable from r in exactly `depth` steps
+                            std::fill(bfs_current.begin(), bfs_current.end(), 0);
+                            bfs_current[r] = 1;
+
+                            for (int step = 0; step < depth; step++) {
+                                std::fill(bfs_next.begin(), bfs_next.end(), 0);
+                                for (int v = 0; v < adj.nodeCount; v++) {
+                                    if (!bfs_current[v]) continue;
+                                    if (aux.robberSelfEdges == SelfEdgeRobber::TRUE) {
+                                        bfs_next[v] = 1;
+                                    }
+                                    uint8_t* edges = adj.getEdges(v);
+                                    for (int e = 0; edges[e] != 255; e++) {
+                                        bfs_next[edges[e]] = 1;
+                                    }
+                                }
+                                std::swap(bfs_current, bfs_next);
+                            }
+
+                            // AND check: cops must win at every vertex the robber could occupy
+                            bool allMarked = true;
+                            uint8_t maxRound = 0;
+
+                            for (int v = 0; v < adj.nodeCount; v++) {
+                                if (!bfs_current[v]) continue;
+                                nextState = aux.getState(cId, v, next_col);
+                                if (!nextState->marked) {
+                                    allMarked = false;
+                                    break;
+                                }
+                                if (nextState->markedRound > maxRound) maxRound = nextState->markedRound;
+                            }
+
+                            if (allMarked) {
+                                state->marked = true;
+                                state->markedRound = maxRound + 1;
+                                newWinsThisPass++;
+                            }
+                        }
+                    }
+
                 }
 
             }

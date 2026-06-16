@@ -1,85 +1,128 @@
 import os
+import sys
 import subprocess
 from pathlib import Path
 
 # --- CONFIGURATION ---
 COMPILER = "g++"
-FLAGS = ["-Wall", "-std=c++17", "-Iinclude", "-Ofast"]
+FLAGS = ["-Wall", "-std=c++17", "-Ilib/include", "-Ofast"]
 
 # Directories
-SRC_DIR = Path("src")
-OBJ_DIR = Path("obj")
-OUT_DIR = Path("out")
-
-# Whitelist of files containing a main() function
-# (Just use the filenames, the script will find them)
-WHITELIST = [
-    "k_cops.cpp", 
-    "k_cops_2.cpp", 
-    "k_cops_3.cpp", 
-    "k_cops_4.cpp", 
-    "k_cops_5.cpp", 
-    "k_cops_rounds.cpp", 
-    "k_cops_alternating.cpp", 
-    "k_cops_tickets.cpp",
-    "k_cops_tickets_poc.cpp"
-]
+APP_DIR = Path("app")             # <--- NEW: Supervisor directory
+MAIN_CPP = APP_DIR / "main.cpp"   # <--- NEW: The only file with a main()
+LIB_SRC_DIR = Path("lib/src")
+SOLVERS_DIR = Path("solvers")
+BUILD_DIR = Path("build")
+OBJ_DIR = BUILD_DIR / "obj"
+BIN_DIR = BUILD_DIR / "bin"
 
 def main():
-    # 1. Setup directories
-    OBJ_DIR.mkdir(exist_ok=True)
-    OUT_DIR.mkdir(exist_ok=True)
+    # 0. Ensure the script runs relative to its own location
+    script_dir = Path(__file__).resolve().parent
+    os.chdir(script_dir)
 
-    # 2. Gather all .cpp files from src/ and the root directory
-    # Using a set to avoid duplicates if your structure changes
-    all_cpp_files = list(Path(".").glob("*.cpp")) + list(SRC_DIR.glob("*.cpp"))
-    all_cpp_files = list(set(all_cpp_files))
+    # 1. Create the required build directories if they do not exist
+    OBJ_DIR.mkdir(parents=True, exist_ok=True)
+    BIN_DIR.mkdir(parents=True, exist_ok=True)
 
-    if not all_cpp_files:
-        print("Error: No .cpp files found.")
-        return
+    # Ensure main.cpp exists before attempting to build
+    if not MAIN_CPP.exists():
+        print(f"Error: Supervisor file {MAIN_CPP} not found.")
+        sys.exit(1)
 
-    # 3. Separate files into libraries (needs .o) and mains (needs .exe)
-    lib_files = [f for f in all_cpp_files if f.name not in WHITELIST]
-    main_files = [f for f in all_cpp_files if f.name in WHITELIST]
+    # 2. Gather .cpp files
+    lib_files = list(LIB_SRC_DIR.glob("*.cpp"))
+    solver_files = list(SOLVERS_DIR.glob("*.cpp"))
+
+    if not lib_files and not solver_files:
+        print("Error: No .cpp files found in lib/src/ or solvers/.")
+        sys.exit(1)
 
     obj_files = []
+    libs_compiled = 0
 
-    # 4. Compile library files to .o (with timestamp caching)
-    print(f"--- Compiling Backend Logic ({len(lib_files)} files) ---")
-    for src in lib_files:
-        obj_path = OBJ_DIR / f"{src.stem}.o"
-        obj_files.append(obj_path)
+    # 3. Compile backend library files to .o (Still hard-fails on error)
+    if lib_files:
+        print(f"--- Compiling Backend Logic ({len(lib_files)} files) ---")
+        for src in lib_files:
+            obj_path = OBJ_DIR / f"{src.stem}.o"
+            obj_files.append(obj_path)
 
-        # Skip compilation if the object file is already up to date
-        if obj_path.exists() and obj_path.stat().st_mtime >= src.stat().st_mtime:
-            continue
+            if obj_path.exists() and obj_path.stat().st_mtime >= src.stat().st_mtime:
+                continue
 
-        cmd = [COMPILER] + FLAGS + ["-c", str(src), "-o", str(obj_path)]
-        print(f"Compiling: {src.name}")
-        
-        result = subprocess.run(cmd)
-        if result.returncode != 0:
-            print(f"\n[FATAL] Build failed on {src.name}")
-            return
+            cmd = [COMPILER] + FLAGS + ["-c", str(src), "-o", str(obj_path)]
+            print(f"Compiling: {src.name}")
+            
+            result = subprocess.run(cmd)
+            if result.returncode != 0:
+                print(f"\n[FATAL] Core library build failed on {src.name}. Aborting.")
+                sys.exit(1)
+            libs_compiled += 1
+            
+        if libs_compiled == 0:
+            print("All backend objects are up to date.")
 
-    # 5. Compile and link the whitelisted main files
-    print(f"\n--- Building Executables ({len(main_files)} targets) ---")
-    obj_args = [str(o) for o in obj_files]
+    # 4. Compile and link the solvers using the macro trick (Continues on error)
+    failed_solvers = []
     
-    for main_src in main_files:
-        exe_name = OUT_DIR / f"{main_src.stem}.exe"
+    if solver_files:
+        print(f"\n--- Building Executables ({len(solver_files)} targets) ---")
+        obj_args = [str(o) for o in obj_files]
+        exes_built = 0
         
-        # We always relink the executable just to be safe if backend logic changed
-        cmd = [COMPILER] + FLAGS + [str(main_src)] + obj_args + ["-o", str(exe_name)]
-        print(f"Linking:   {exe_name.name}")
-        
-        result = subprocess.run(cmd)
-        if result.returncode != 0:
-            print(f"\n[FATAL] Build failed on {main_src.name}")
-            return
+        for solver_src in solver_files:
+            exe_path = BIN_DIR / f"{solver_src.stem}.exe"
+            
+            needs_rebuild = True
+            if exe_path.exists():
+                exe_mtime = exe_path.stat().st_mtime
+                src_newer = solver_src.stat().st_mtime > exe_mtime
+                main_newer = MAIN_CPP.stat().st_mtime > exe_mtime # <--- NEW: Rebuild if main.cpp changes
+                objs_newer = any(o.stat().st_mtime > exe_mtime for o in obj_files)
+                
+                if not src_newer and not main_newer and not objs_newer:
+                    needs_rebuild = False
+            
+            if not needs_rebuild:
+                continue
 
-    print("\n[SUCCESS] All targets built successfully.")
+            # NEW: Format the path for the C++ macro. 
+            # .as_posix() forces forward slashes so Windows doesn't interpret \ as escape chars inside the macro!
+            include_path = f'"{solver_src.resolve().as_posix()}"'
+
+            # NEW: We are compiling MAIN_CPP, not solver_src, and passing the macro.
+            cmd = [
+                COMPILER
+            ] + FLAGS + [
+                str(MAIN_CPP) 
+            ] + obj_args + [
+                f'-DALGORITHM_INCLUDE={include_path}', 
+                "-o", str(exe_path)
+            ]
+            print(f"Compiling & Linking:   {exe_path.name}")
+            
+            result = subprocess.run(cmd)
+            
+            # If it fails, record it and move on instead of crashing
+            if result.returncode != 0:
+                print(f"[ERROR] Failed to compile {solver_src.name}")
+                failed_solvers.append(solver_src.name)
+            else:
+                exes_built += 1
+            
+        if exes_built == 0 and not failed_solvers:
+            print("All executables are up to date.")
+
+    # 5. Final Build Summary
+    if failed_solvers:
+        print(f"\n[WARNING] Build finished with errors. {len(failed_solvers)} solver(s) failed:")
+        for failed_file in failed_solvers:
+            print(f"  - {failed_file}")
+        # Exit with a non-zero code so CI/CD pipelines know the build wasn't fully successful
+        sys.exit(1) 
+    else:
+        print("\n[SUCCESS] Build process completed successfully.")
 
 if __name__ == "__main__":
     main()
