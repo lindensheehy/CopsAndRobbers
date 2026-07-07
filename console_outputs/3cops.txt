@@ -1,0 +1,217 @@
+Executing: build/bin/k_cops_visibility.exe assets\matrices\scotlandyard-all.txt 3 1
+Loaded AuxGraph from cache!
+Initialized 3960100 base captures.
+Starting Backward Induction Loop for 1-Visibility...
+Pass 1: Found 17752904 new winning states.
+Pass 2: Found 5797658 new winning states.
+Pass 3: Found 9305291 new winning states.
+Pass 4: Found 22839206 new winning states.
+Pass 5: Found 55772916 new winning states.
+Pass 6: Found 117328956 new winning states.
+Pass 7: Found 181287583 new winning states.
+Pass 8: Found 102949658 new winning states.
+Pass 9: Found 9594597 new winning states.
+Pass 10: Found 104431 new winning states.
+Pass 11: Found 0 new winning states.
+
+--- FINAL VERDICT ---
+RESULT: WIN. 3 Cop(s) CAN win this graph with 1/1 visibility.
+Optimal Cop Start Positions: (12, 66, 138)
+Capture Time: 9 plys (4 full cycles).
+
+||>>>>>=====-----=====<<<<<     Memory Tracking Report     >>>>>=====-----=====<<<<<
+||
+||   Total Footprint ----------------------=>   1423105280 B / 1357.18 MB /  1.33 GB (100.00%)
+||    -> Tracked Externally ----------=>   1423105280 B / 1357.18 MB /  1.33 GB (100.00%)
+||
+||
+||  ---===<<<>>>===---   Drill Down   ---===<<<>>>===---
+||
+||   Tracked Externally -------------------=>   1423105280 B / 1357.18 MB /  1.33 GB
+||    -> Cache: AuxGraph states ------=>    530653400 B /  506.07 MB /  0.49 GB (37.29%)
+||    -> Cache: AuxGraph transitions -=>    877783168 B /  837.12 MB /  0.82 GB (61.68%)
+||    -> Cache: AuxGraph transHeads --=>     10666408 B /   10.17 MB /  0.01 GB (0.75%)
+||    -> Cache: AuxGraph configs -----=>      3999900 B /    3.81 MB /  0.00 GB (0.28%)
+||    -> Graph Adj List --------------=>         2404 B /    0.00 MB /  0.00 GB (0.00%)
+||
+||>>>>>>>>>>>>>>>>================------------------================<<<<<<<<<<<<<<<<
+
+Saving filled AuxGraph to cache... Success!
+
+||>>>>>=====-----=====<<<<<     Timing Profiler Report     >>>>>=====-----=====<<<<<
+||
+||   Total App Uptime ---------------=>     508.1198 s (100.00%)
+||    -> Tracked Execution -----=>     508.1198 s (100.00%)
+||
+||
+||  ---===<<<>>>===---   Drill Down   ---===<<<>>>===---
+||
+||  -> Load Graph File -----=>       0.0003 s (  0.00%)
+||  -> Idle ----------------=>       0.0000 s (  0.00%)
+||  -> Build Aux Graph -----=>       0.8791 s (  0.17%)
+||  -> Initialize Captures -=>       0.6918 s (  0.14%)
+||  -> Main Loop -----------=>     505.0718 s ( 99.40%)
+||  -> Find Final Result ---=>       0.2090 s (  0.04%)
+||  -> Output Data ---------=>       1.2677 s (  0.25%)
+||
+||>>>>>>>>>>>>>>>>================------------------================<<<<<<<<<<<<<<<<
+
+--- k_cops_visibility.exe finished in 508.1737 seconds ---
+
+
+
+
+
+
+
+
+
+Executing: build/bin/k_cops_visibility.exe assets\matrices\scotlandyard-all.txt 3 2
+Loaded AuxGraph from cache!
+Initialized 3960100 base captures.
+Starting Backward Induction Loop for 2-Visibility...
+Pass 1: Found 16889794 new winning states.
+Pass 2: Found 1231706 new winning states.
+Pass 3: Found 998882 new winning states.
+Pass 4: Found 4747416 new winning states.
+Pass 5: Found 2091109 new winning states.
+Pass 6: Found 1882446 new winning states.
+Pass 7: Found 15090868 new winning states.
+Pass 8: Found 13088686 new winning states.
+Pass 9: Found 12355937 new winning states.
+Pass 10: Found 53820231 new winning states.
+Pass 11: Found 37930698 new winning states.
+Pass 12: Found 36832617 new winning states.
+Pass 13: Found 104879416 new winning states.
+Pass 14: Found 98910213 new winning states.
+Pass 15: Found 97587165 new winning states.
+Pass 16: Found 255762348 new winning states.
+Pass 17: Found 109393955 new winning states.
+Pass 18: Found 109029590 new winning states.
+Pass 19: Found 75481022 new winning states.
+Pass 20: Found 2680333 new winning states.
+Pass 21: Found 2679963 new winning states.
+Pass 22: Found 22205 new winning states.
+Pass 23: Found 0 new winning states.
+
+--- FINAL VERDICT ---
+RESULT: WIN. 3 Cop(s) CAN win this graph with 1/2 visibility.
+Optimal Cop Start Positions: (0, 12, 88)
+Capture Time: 17 plys (4 full cycles).
+
+||>>>>>=====-----=====<<<<<     Memory Tracking Report     >>>>>=====-----=====<<<<<
+||
+||   Total Footprint ----------------------=>   1953758680 B / 1863.25 MB /  1.82 GB (100.00%)
+||    -> Tracked Externally ----------=>   1953758680 B / 1863.25 MB /  1.82 GB (100.00%)
+||
+||
+||  ---===<<<>>>===---   Drill Down   ---===<<<>>>===---
+||
+||   Tracked Externally -------------------=>   1953758680 B / 1863.25 MB /  1.82 GB
+||    -> Cache: AuxGraph states ------=>   1061306800 B / 1012.14 MB /  0.99 GB (54.32%)
+||    -> Cache: AuxGraph transitions -=>    877783168 B /  837.12 MB /  0.82 GB (44.93%)
+||    -> Cache: AuxGraph transHeads --=>     10666408 B /   10.17 MB /  0.01 GB (0.55%)
+||    -> Cache: AuxGraph configs -----=>      3999900 B /    3.81 MB /  0.00 GB (0.20%)
+||    -> Graph Adj List --------------=>         2404 B /    0.00 MB /  0.00 GB (0.00%)
+||
+||>>>>>>>>>>>>>>>>================------------------================<<<<<<<<<<<<<<<<
+
+Saving filled AuxGraph to cache... Success!
+
+||>>>>>=====-----=====<<<<<     Timing Profiler Report     >>>>>=====-----=====<<<<<
+||
+||   Total App Uptime ---------------=>    1806.9627 s (100.00%)
+||    -> Tracked Execution -----=>    1806.9627 s (100.00%)
+||
+||
+||  ---===<<<>>>===---   Drill Down   ---===<<<>>>===---
+||
+||  -> Load Graph File -----=>       0.0059 s (  0.00%)
+||  -> Idle ----------------=>       0.0000 s (  0.00%)
+||  -> Build Aux Graph -----=>       1.3125 s (  0.07%)
+||  -> Initialize Captures -=>       0.8847 s (  0.05%)
+||  -> Main Loop -----------=>    1802.8403 s ( 99.77%)
+||  -> Find Final Result ---=>       0.2182 s (  0.01%)
+||  -> Output Data ---------=>       1.7011 s (  0.09%)
+||
+||>>>>>>>>>>>>>>>>================------------------================<<<<<<<<<<<<<<<<
+
+--- k_cops_visibility.exe finished in 1807.1785 seconds ---
+
+
+
+
+
+
+
+
+
+Executing: build/bin/k_cops_visibility.exe assets\matrices\scotlandyard-all.txt 3 3
+Cache miss. Creating new AuxGraph with 6 columns...
+Building AuxGraph transition table for 1333300 configurations...
+Transitions generated. Total edge pointers: 109722896
+Initialized 3960100 base captures.
+Starting Backward Induction Loop for 3-Visibility...
+Pass 1: Found 16737255 new winning states.
+Pass 2: Found 17938 new winning states.
+Pass 3: Found 17938 new winning states.
+Pass 4: Found 133555 new winning states.
+Pass 5: Found 120546 new winning states.
+Pass 6: Found 542174 new winning states.
+Pass 7: Found 651 new winning states.
+Pass 8: Found 651 new winning states.
+Pass 9: Found 9106 new winning states.
+Pass 10: Found 8674 new winning states.
+Pass 11: Found 40541 new winning states.
+Pass 12: Found 0 new winning states.
+
+--- FINAL VERDICT ---
+RESULT: LOSS. 3 Cop(s) CANNOT guarantee a win.
+(The Robber has a strategy to survive indefinitely against any start).
+
+||>>>>>=====-----=====<<<<<     Memory Tracking Report     >>>>>=====-----=====<<<<<
+||
+||   Total Footprint -------------------------=>   2484477616 B / 2369.38 MB /  2.31 GB (100.00%)
+||    -> Managed Internally -------------=>   1595960100 B / 1522.03 MB /  1.49 GB (64.24%)
+||    -> Tracked Externally -------------=>    888517516 B /  847.36 MB /  0.83 GB (35.76%)
+||
+||
+||  ---===<<<>>>===---   Drill Down   ---===<<<>>>===---
+||
+||   Managed Internally ----------------------=>   1595960100 B / 1522.03 MB /  1.49 GB
+||
+||    -> Arena Block 1 ------------------=>      3999900 B /    3.81 MB /  0.00 GB (0.16%)
+||      -> Cop Configs -------------=>      3999900 B /    3.81 MB /  0.00 GB
+||
+||    -> Arena Block 2 ------------------=>   1591960200 B / 1518.21 MB /  1.48 GB (64.08%)
+||      -> AuxGraph Per State Data -=>   1591960200 B / 1518.21 MB /  1.48 GB
+||
+||   Tracked Externally ----------------------=>    888517516 B /  847.36 MB /  0.83 GB
+||    -> tempMoves (Peak Buffer) --------=>        65536 B /    0.06 MB /  0.00 GB (0.00%)
+||    -> AuxGraph: Edges ----------------=>    877783168 B /  837.12 MB /  0.82 GB (35.33%)
+||    -> AuxGraph: Heads ----------------=>     10666408 B /   10.17 MB /  0.01 GB (0.43%)
+||    -> Graph Adj List -----------------=>         2404 B /    0.00 MB /  0.00 GB (0.00%)
+||
+||>>>>>>>>>>>>>>>>================------------------================<<<<<<<<<<<<<<<<
+
+Saving filled AuxGraph to cache... Success!
+
+||>>>>>=====-----=====<<<<<     Timing Profiler Report     >>>>>=====-----=====<<<<<
+||
+||   Total App Uptime ---------------=>    2903.2329 s (100.00%)
+||    -> Tracked Execution -----=>    2903.2329 s (100.00%)
+||
+||
+||  ---===<<<>>>===---   Drill Down   ---===<<<>>>===---
+||
+||  -> Load Graph File -----=>       0.0008 s (  0.00%)
+||  -> Idle ----------------=>       0.0001 s (  0.00%)
+||  -> Build Aux Graph -----=>      10.8110 s (  0.37%)
+||  -> Initialize Captures -=>       1.1067 s (  0.04%)
+||  -> Main Loop -----------=>    2888.8185 s ( 99.50%)
+||  -> Find Final Result ---=>       0.0143 s (  0.00%)
+||  -> Output Data ---------=>       2.4815 s (  0.09%)
+||
+||>>>>>>>>>>>>>>>>================------------------================<<<<<<<<<<<<<<<<
+
+--- k_cops_visibility.exe finished in 2903.3354 seconds ---

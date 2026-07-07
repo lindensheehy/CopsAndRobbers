@@ -3,7 +3,5 @@
 *.npz
 *.bin
 
-cpp/assets/parser_cache.json
-temp_dp.txt
-temp_path.txt
 .vscode
+*/__pycache__

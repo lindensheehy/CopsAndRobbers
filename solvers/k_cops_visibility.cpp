@@ -84,33 +84,39 @@ bool buildAuxGraph() {
 
 bool initializeCaptures() {
 
-    /*
-        This function should be correct. Verify if necessary
-    */
-
     uint64_t initialWins = 0;
 
     for (size_t cId = 0; cId < aux.configCount; ++cId) {
         for (int r = 0; r < adj.nodeCount; ++r) {
-            
-            bool caught = aux.isInstantCatch(cId, r);
 
-            DataItem* state0 = aux.getState(cId, r, 0);
-            DataItem* state1 = aux.getState(cId, r, 1);
+            // Establish the base case for EVERY column, not just 0 and 1.
+            // This is mandatory for correctness on a cache HIT: loadAuxGraph
+            // restores the entire filled `states` array from disk, and mainLoop
+            // is monotone (it only ever adds marks). If we leave cols 2..max-1
+            // holding stale marks from a previous (or differently-converged) run,
+            // they permanently seed the propagation and corrupt the result.
+            // Resetting all columns is redundant-but-harmless on a cache miss and
+            // makes cache-hit and cache-miss runs behave identically.
+            for (int col = 0; col < columns; ++col) {
+                DataItem* state = aux.getState(cId, r, col);
+                state->marked = false;
+                state->markedRound = MAX_ROUND_COUNT;
+            }
 
-            if (caught) {
+            // A base capture (robber sitting on a cop) is a win at the start of
+            // the cycle: mark cols 0 and 1 only. Do NOT mark the later columns --
+            // r there is the robber's shadow (last-seen anchor), not its true
+            // position, so a cop on the shadow is not a real capture.
+            if (aux.isInstantCatch(cId, r)) {
+                DataItem* state0 = aux.getState(cId, r, 0);
+                DataItem* state1 = aux.getState(cId, r, 1);
                 state0->marked = true;
                 state0->markedRound = 0;
                 state1->marked = true;
                 state1->markedRound = 0;
                 initialWins++;
-            } else {
-                state0->marked = false;
-                state0->markedRound = MAX_ROUND_COUNT;
-                state1->marked = false;
-                state1->markedRound = MAX_ROUND_COUNT;
             }
-            
+
         }
     }
 
@@ -142,65 +148,16 @@ bool mainLoop() {
             int next_col = (col + 1) % columns;
 
             bool isCopTurn = (col % 2 == 0);
-            bool isBlindCopTurn = isCopTurn && (col > 0);
 
-            // --- BLIND COP TURN (col > 0, even) ---
-            // Cops cannot see the robber, so they must commit to a single transition
-            // that works for ALL robber positions simultaneously.
-            if (isBlindCopTurn) {
-
-                for (size_t cId = 0; cId < aux.configCount; ++cId) {
-
-                    // Early-out: skip if all (cId, *, col) already marked
-                    bool skip = true;
-                    for (int r = 0; r < adj.nodeCount; ++r) {
-                        if (!aux.getState(cId, r, col)->marked) { skip = false; break; }
-                    }
-                    if (skip) continue;
-
-                    aux.getCopTransitions(cId, copTransStart, copTransEnd);
-
-                    // Find the best uniform transition: minimize worst-case markedRound across all r
-                    size_t bestTransOffset = (size_t)-1;
-                    uint8_t bestMax = 0;
-
-                    for (size_t i = copTransStart; i < copTransEnd; ++i) {
-                        size_t nextConfigN = aux.transitions[i];
-                        bool allMarked = true;
-                        uint8_t maxRound = 0;
-
-                        for (int r = 0; r < adj.nodeCount; ++r) {
-                            nextState = &(aux.states[(nextConfigN + r) * columns + next_col]);
-                            if (!nextState->marked) { allMarked = false; break; }
-                            if (nextState->markedRound > maxRound) maxRound = nextState->markedRound;
-                        }
-
-                        if (allMarked) {
-                            if (bestTransOffset == (size_t)-1 || maxRound < bestMax) {
-                                bestMax = maxRound;
-                                bestTransOffset = nextConfigN;
-                            }
-                        }
-                    }
-
-                    if (bestTransOffset != (size_t)-1) {
-                        for (int r = 0; r < adj.nodeCount; ++r) {
-                            state = aux.getState(cId, r, col);
-                            if (!state->marked) {
-                                nextState = &(aux.states[(bestTransOffset + r) * columns + next_col]);
-                                state->marked = true;
-                                state->markedRound = nextState->markedRound + 1;
-                                newWinsThisPass++;
-                            }
-                        }
-                    }
-                }
-
-            }
-
-            // --- VISIBLE COP TURN (col == 0) ---
-            // Cops can see the robber, so they pick the best transition per r independently.
-            else if (isCopTurn) {
+            // --- COP TURN (any even col, OR node, per-r) ---
+            // The state encodes the last-seen robber anchor r (observed at col 0), which the
+            // cops always know. So EVERY cop turn -- visible (col 0) or "blind" (col > 0) -- is
+            // an independent per-r choice: the cops pick the best transition for this (cId, r).
+            // Cop blindness does NOT constrain the cop move; it only matters on robber turns,
+            // where the unknown robber position becomes the deferred cloud that is AND-checked
+            // at the max col. (A uniform-across-all-r transition is NOT required and would be
+            // far too strong -- it stalls the backward induction. See legacy alternating solver.)
+            if (isCopTurn) {
 
                 for (size_t cId = 0; cId < aux.configCount; ++cId) {
 
@@ -224,7 +181,12 @@ bool mainLoop() {
                             }
                         }
 
-                        if (winFound) {
+                        // Overflow guard: markedRound is a 7-bit field, so a capture
+                        // that would take MAX_ROUND_COUNT (127) or more plys cannot be
+                        // represented. We don't care about games that long (scope is
+                        // ~25 rounds), so treat them as unwinnable and leave the state
+                        // unmarked rather than wrapping the counter around to 0.
+                        if (winFound && minRounds + 1 < MAX_ROUND_COUNT) {
                             state->marked = true;
                             state->markedRound = minRounds + 1;
                             newWinsThisPass++;
@@ -237,10 +199,14 @@ bool mainLoop() {
             // --- ROBBER'S TURN (odd cols) ---
             else {
 
-                // Intermediate invisible robber turn: DIRECT IF.
-                // The state has exactly one outgoing edge (incrementing the column), so the AND
-                // node collapses to a single check against the same (cId, r) at the next column.
-                if (col > 1 && col < columns - 1) {
+                // Deferred robber turn: DIRECT IF.
+                // Covers col 1 AND every interior odd col. The robber's move is NOT
+                // materialized here; the invisibility cloud is deferred entirely to the
+                // max-col boundary. The state has exactly one outgoing edge (incrementing
+                // the column), so the AND node collapses to a single check against the
+                // same (cId, r) at the next column. The anchor r stays fixed at the col-0
+                // last-seen position throughout the cycle.
+                if (col < columns - 1) {
 
                     for (size_t cId = 0; cId < aux.configCount; ++cId) {
                         for (int r = 0; r < adj.nodeCount; ++r) {
@@ -249,7 +215,9 @@ bool mainLoop() {
                             if (state->marked) continue;
 
                             nextState = aux.getState(cId, r, next_col);
-                            if (nextState->marked) {
+                            // Overflow guard (see cop-turn note): drop captures that
+                            // would exceed the 7-bit markedRound field.
+                            if (nextState->marked && nextState->markedRound + 1 < MAX_ROUND_COUNT) {
                                 state->marked = true;
                                 state->markedRound = nextState->markedRound + 1;
                                 newWinsThisPass++;
@@ -259,9 +227,11 @@ bool mainLoop() {
 
                 }
 
-                // Visible robber turn (col == 1) or max col boundary (col == columns - 1):
-                // Expand exactly (col+1)/2 hops from r (= ceil(col/2)) and AND-check all
-                // reachable vertices against next_col. For p=1 these two cases coincide.
+                // Max-col boundary (col == columns - 1): the ONLY place the deferred cloud
+                // is cashed out. Expand exactly (col+1)/2 = p hops from the fixed anchor r
+                // (accounting for all p deferred robber moves at once) and AND-check every
+                // reachable vertex against next_col (which wraps to col 0). For p=1 this col
+                // is col 1 and depth = 1, reducing to the standard full-visibility robber turn.
                 else {
 
                     int depth = (col + 1) / 2;
@@ -305,7 +275,9 @@ bool mainLoop() {
                                 if (nextState->markedRound > maxRound) maxRound = nextState->markedRound;
                             }
 
-                            if (allMarked) {
+                            // Overflow guard (see cop-turn note): drop captures that
+                            // would exceed the 7-bit markedRound field.
+                            if (allMarked && maxRound + 1 < MAX_ROUND_COUNT) {
                                 state->marked = true;
                                 state->markedRound = maxRound + 1;
                                 newWinsThisPass++;

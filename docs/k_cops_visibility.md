@@ -6,7 +6,7 @@ This file implements a **retrograde analysis solver** for the Cops and Robbers g
 
 The solver determines whether `k` cops can *force* a capture against an optimally-playing robber, using backward induction over an AuxGraph state space.
 
-This is the main research artifact for the Scotland Yard variant of Cops and Robbers with decreasing visibility. The immediate target is **1/5 visibility** (robber visible every 5 moves). The current implementation bug (as of meeting 15) is that the iteration logic was hardcoded for `p=2` and needs to be parameterized for arbitrary `p`.
+This is the main research artifact for the Scotland Yard variant of Cops and Robbers with decreasing visibility. The immediate target is **1/5 visibility** (robber visible every 5 moves). The column sweep is now parameterized for arbitrary `p` (the original code was hardcoded for `p=2`); see *Known Issues* for the two bugs that were fixed in the generalization.
 
 ---
 
@@ -42,20 +42,22 @@ The intermediate invisible robber turns have a **1-to-1 structure** (no new edge
 
 With `columns = 2 * p`, the columns map as follows:
 
-| Column     | Actor  | Visibility | Node Type |
-|------------|--------|------------|-----------|
-| 0          | Cops   | Visible    | OR node |
-| 1          | Robber | Visible    | AND node |
-| 2          | Cops   | Invisible  | OR node (uniform) |
-| 3          | Robber | Invisible  | DIRECT IF (interior) or AND boundary |
-| 4          | Cops   | Invisible  | OR node (uniform) |
-| ...        | ...    | ...        | ... |
-| `2p-2`     | Cops   | Invisible  | OR node (uniform) |
-| `2p-1`     | Robber | Invisible  | AND boundary (max col) |
+| Column     | Actor  | Cop knows robber pos? | Node Type |
+|------------|--------|-----------------------|-----------|
+| 0          | Cops   | Yes (just saw it at `r`) | OR node (per-`r`) |
+| 1          | Robber | —                     | DIRECT IF (deferred) — or AND boundary if `p=1` |
+| 2          | Cops   | No (knows only `r`)   | OR node (per-`r`) |
+| 3          | Robber | —                     | DIRECT IF (deferred) — or AND boundary if `p=2` |
+| 4          | Cops   | No (knows only `r`)   | OR node (per-`r`) |
+| ...        | ...    | ...                   | ... |
+| `2p-2`     | Cops   | No (knows only `r`)   | OR node (per-`r`) |
+| `2p-1`     | Robber | —                     | AND boundary (max col, BFS depth `p`) |
 
 **Parity rules:**
 - Even columns = Cop turn
 - Odd columns = Robber turn
+
+> **Key correction (post Meeting 15):** *Every* cop turn — visible (col 0) or "blind" (cols 2, 4, …) — is an **independent per-`r` OR node**. The cops always know the last-seen anchor `r`, so a blind cop turn is structurally identical to col 0; it is **not** a "uniform transition for all `r`" node. Cop blindness manifests only on robber turns, as the deferred cloud that is AND-checked at the max col. Likewise, only the **max col** materializes the cloud (BFS depth `p`); col 1 and all interior odd cols are deferred **DIRECT IF** pass-throughs (the lone exception is `p=1`, where col 1 *is* the max col).
 
 **Distance (robber reachability from `r`) at column `col`:**  
 The robber moves on odd columns, so the maximum hop-distance from `r` after column `col` is:
@@ -94,45 +96,31 @@ Cops **can see** the robber. They choose a transition independently for each rob
 
 ---
 
-### Col 1 — First Robber Turn / BFS Boundary (Depth 1)
+### All Cop Turns (every even col) — Per-`r` OR Node
 
-Col 1 is a robber turn where cops know `r` precisely — it is the last-seen position from col 0, and the robber is still there when col 1 begins. After the robber moves, its destination is unknown; `r` remains fixed as the cycle anchor.
+This is the same rule for **all** cop turns, visible or blind. The cops always know the last-seen anchor `r` (and their own config `cId`), so they make a free, independent choice for each `r`. There is **no** uniform-across-`r` constraint — that was the central bug fixed after Meeting 15 (it stalled the backward induction within ~2 passes and produced spurious results for every `p > 1`).
 
-Because `r` is the exact starting node, the set of places the robber could have moved to is just the 1-hop neighborhood of `r`. The solver must ensure ALL of those destinations are forced wins at col 2.
+**Mark rule:** Mark `(cId, r, col)` if **there exists** a cop transition to config `nextCId` such that `(nextCId, r, next_col)` is already marked.
 
-**Mark rule:** Mark `(cId, r, 1)` if **for all** vertices `v` reachable from `r` in exactly 1 step, `(cId, v, 2)` is already marked.
+**`markedRound`:** `min(nextState.markedRound) + 1` over all winning transitions (cops pick fastest capture).
 
-**`markedRound`:** `max(nextState.markedRound) + 1` (robber picks slowest-to-capture destination).
-
-This is handled by the same **BFS boundary logic** as the max-col case, with `depth = (1+1)/2 = 1` and `next_col = 2`. For `p = 1`, col 1 *is* the max col and `next_col` wraps to 0 — no special handling needed. The depth-1 BFS is identical to what a standard full-visibility solver does on every robber turn, which is why `p=1` reduces correctly to the standard game.
+Why blindness does *not* constrain the cop move: the cop transition depends only on `(cId, r)`, both of which the cops legitimately know (`r` is the position they observed at col 0). The robber's *true* current position during a blind turn is never used by the cops and is never representable here — that uncertainty is captured entirely by the deferred cloud, which is AND-checked once at the max col. So a "blind" cop turn (col 2, 4, …) is structurally identical to the visible col-0 turn.
 
 ---
 
-### Even Cols > 0 — Blind Cop Turn (Uniform OR Node)
+### Col 1 and Interior Odd Cols (`col < columns − 1`) — Deferred Robber Turn (DIRECT IF)
 
-Cops **cannot see** the robber. They must commit to a **single transition** that works for **all** possible true robber positions simultaneously — because they don't know which `r` the robber is actually at.
+Every robber turn **except the max col** is a deferred pass-through. This includes **col 1** (for `p ≥ 2`) and every interior odd col. The robber does move on these turns, but the expansion is **not** materialized here; it is deferred entirely to the max-col BFS, which counts *all* `p` robber moves at once.
 
-**Mark rule:** Mark **all** `(cId, r, col)` for a given `cId` if **there exists** a cop transition to `nextCId` such that `(nextCId, r, next_col)` is marked **for every `r`**.
-
-**`markedRound`:** `max over r of nextState[r].markedRound + 1` for the chosen transition (worst-case true robber position).
-
-**Key constraint:** The same cop transition must work for all `r`. The algorithm picks the transition that minimizes the worst-case `markedRound` across all `r`.
-
-**Early-out:** If all `(cId, r, col)` are already marked for every `r`, skip this `cId`.
-
----
-
-### Intermediate Odd Cols (1 < col < columns − 1) — Invisible Robber, Interior (DIRECT IF)
-
-These columns represent invisible robber turns that are **not** the final boundary of the cycle.
-
-**Critical insight:** The robber's expanding probability cloud is deferred entirely until the max-col boundary. At these intermediate columns the AuxGraph enforces this by giving each node `(cId, r, col)` **exactly one outgoing edge** — to `(cId, r, col+1)`. The robber has no representable "choice" here; the edge just advances the column, implicitly deepening the cloud rooted at `r`. This is also the memory optimization from Meeting 14_2: middle transitions are 1-to-1 and require no new edge structures.
+**Critical insight:** The robber's expanding probability cloud is deferred until the max-col boundary. The AuxGraph enforces this by giving each node `(cId, r, col)` **exactly one outgoing edge** — to `(cId, r, col+1)`. The robber has no representable "choice" here; the edge just advances the column, keeping the anchor `r` fixed and implicitly deepening the cloud rooted at `r`. This is also the memory optimization from Meeting 14_2: these transitions are 1-to-1 and require no new edge structures.
 
 **Mark rule:** Mark `(cId, r, col)` if and only if `(cId, r, next_col)` is already marked.
 
 **`markedRound`:** `nextState.markedRound + 1`.
 
 **Do NOT** compute the expanded vertex set here. The DIRECT IF is correct and intentional.
+
+> **Note on col 1:** Earlier drafts treated col 1 as a depth-1 BFS boundary that materialized the robber's first move (shifting the anchor `r → v`). That is wrong for `p ≥ 2`: it double-counts the first move, because the depth-`p` BFS at the max col already accounts for *all* `p` robber moves from the original `r`. Col 1 is a DIRECT IF like the other interior odd cols. The **only** exception is `p = 1`, where col 1 *is* the max col and therefore runs the BFS (depth 1) instead — which is exactly why `p = 1` reduces to the standard full-visibility game.
 
 ---
 
@@ -183,9 +171,7 @@ for (int step = 0; step < depth; step++) {
 
 The sentinel value `255` marks the end of an adjacency list edge array.
 
-This BFS is used in two places:
-1. At col 1 (visible robber turn, depth = 1).
-2. At the max col (invisible robber boundary, depth = p).
+This BFS runs in exactly **one** place: the **max col** (invisible robber boundary, depth = `p`), which cashes out all `p` deferred robber moves at once. For `p = 1` the max col happens to *be* col 1, so the depth-1 BFS there coincides with a standard full-visibility robber turn — but that is the same single code path, not a separate use.
 
 ---
 
@@ -195,9 +181,9 @@ This BFS is used in two places:
 
 | Node type | Rule | Reason |
 |-----------|------|--------|
-| Cop OR node (col 0, or blind even cols) | `min` over transitions | Cops pick the fastest route |
-| Robber AND node (col 1, or max col) | `max` over reachable vertices | Robber picks the slowest route |
-| DIRECT IF (intermediate odd cols) | direct copy | Single edge, no choice |
+| Cop OR node (every even col — col 0 and all blind cop turns) | `min` over transitions | Cops pick the fastest route |
+| Robber AND node (max col only) | `max` over reachable vertices | Robber picks the slowest route |
+| DIRECT IF (col 1 and all interior odd cols) | direct copy | Single edge, no choice |
 | Base capture | `0` | Already caught |
 
 ---
@@ -215,7 +201,12 @@ Reports:
 
 ## Caching
 
-`CacheManager` persists and reloads the filled AuxGraph to/from disk, keyed by `algoName = "k_cops_<p>vis"`. A cache hit skips `buildAuxGraph` + `mainLoop`.
+`CacheManager` persists and reloads the AuxGraph (structure **and** the full `states` array) to/from disk, keyed by `algoName = "k_cops_<p>vis"` plus filename, `k`, `p`, and the self-edge flags.
+
+A cache hit skips only `buildAuxGraph` (the structure rebuild). `main.cpp` still runs `initializeCaptures` and `mainLoop` unconditionally — it does **not** skip the solve. Therefore:
+
+- **`initializeCaptures` must reset every column** of the loaded `states` array to unmarked before re-seeding base captures. `mainLoop` is monotone (it only adds marks), so any stale marks left in cols 2…max-1 from a previous run would permanently seed the propagation and corrupt the result. This was a real bug: the original code reset only cols 0 and 1, so cache-hit runs for `p ≥ 2` converged in 2–3 passes from a polluted starting point (cache-miss runs were fine because freshly-allocated state is zeroed). After the fix, cache-hit and cache-miss produce **identical** pass sequences and verdicts.
+- The cache key is **not** versioned by solver logic. After changing the algorithm, the stale `states` are now harmlessly overwritten by `initializeCaptures`, but deleting `cache/k_cops_*vis*` is still the cleanest way to be sure.
 
 ---
 
@@ -234,19 +225,27 @@ Both cops and robber **cannot stay still** (Meeting 14). The self-edge parameter
 
 ## Known Invariants
 
-1. Col 0 is always the visible cop turn (OR node, independent per `r`).
-2. Col 1 is always a robber turn; it uses the BFS logic with depth 1, checking against col 2 (or col 0 if `p=1`).
-3. Intermediate invisible robber turns (interior odd cols, only exist when `p ≥ 3`) collapse to DIRECT IF — do not compute vertex sets.
-4. Max col (`2p-1`) is always an odd column, always a robber turn, always computes BFS to depth `p`, always checks against col 0.
-5. Blind cop turns (even cols > 0) always require a **uniform** transition — same cop move for all `r`.
-6. For `p=1`, columns=2 and there are no blind cop turns and no intermediate robber turns; the algorithm reduces to the standard full-visibility solver.
-7. For `p=2`, columns=4; there is one blind cop turn (col 2) and one max-col boundary (col 3); no intermediate robber turns.
-8. Intermediate robber turns first appear at `p=3` (col 3 with columns=6).
+1. Every even col is a cop turn = an independent per-`r` OR node. Col 0 (visible) and the blind cop turns (cols 2, 4, …) use the **identical** rule — no uniform-across-`r` constraint anywhere.
+2. Col 1 is a robber turn. For `p ≥ 2` it is a **DIRECT IF** (deferred), checking against col 2. Only when `p = 1` (where col 1 is the max col) does it run the BFS (depth 1, checking col 0).
+3. All interior odd cols (`col < columns − 1`), including col 1 for `p ≥ 2`, collapse to DIRECT IF — do not compute vertex sets.
+4. Max col (`2p-1`) is always an odd column, always a robber turn, always computes BFS to depth `p` from the fixed anchor `r`, always checks against col 0. It is the **only** place the cloud is materialized.
+5. The anchor `r` stays fixed at the col-0 last-seen position for the entire cycle; no robber turn shifts it.
+6. For `p=1`, columns=2: no blind cop turns and no deferred robber turns; the algorithm reduces to the standard full-visibility solver.
+7. For `p=2`, columns=4: col 0 + col 2 are per-`r` cop OR nodes, col 1 is a DIRECT IF, col 3 is the max-col BFS boundary (depth 2).
+8. For `p ≥ 2`, the max-col BFS depth `p` accounts for *all* `p` robber moves at once; materializing any earlier robber turn would double-count moves.
 
 ---
 
-## Known Issues / Current Status (as of Meeting 15)
+## Known Issues / Current Status (resolved post Meeting 15)
 
-- The 1/3 visibility implementation produced a "7-nested-loop problem" when directly generalizing from 1/2. The correct fix is proper parameterization of the column sweep (the `columns` variable and `depth = (col+1)/2` formula), not nesting new loops.
-- There is likely a latent bug in the 1/2 visibility code that only becomes apparent when extending to 1/3. Investigate 1/2 before assuming 1/3 logic is wrong.
-- Development priority: resolve visibility correctness before returning to token/ticket work.
+Two bugs from the `p=2`-hardcoded generalization were fixed:
+
+1. **Uniform blind cop turn (the killer).** Blind cop turns were coded as a single uniform transition that had to work for *all* `r` simultaneously. This is wrong — cops always know the anchor `r`, so every cop turn is a per-`r` OR node. The uniform constraint is nearly unsatisfiable from sparse base captures, so the backward induction stalled within ~2 passes and produced spurious verdicts for every `p > 1`. Fix: all cop turns now use the per-`r` OR rule.
+2. **Col 1 materialized the first robber move twice.** Col 1 ran a depth-1 BFS that shifted the anchor `r → v`, while the max-col BFS (depth `p`) already counted that move — double-counting. Fix: col 1 is a DIRECT IF for `p ≥ 2`; only the max col materializes the cloud.
+3. **Cache pollution via partial re-initialization (the one that made the bug look "persistent").** `initializeCaptures` reset only cols 0 and 1, but a cache hit reloads the *entire* filled `states` array and `mainLoop` runs unconditionally on top of it. Stale marks in cols 2…max-1 survived and seeded the monotone propagation, so cache-hit `p ≥ 2` runs converged in 2–3 passes from a corrupted start (and pass counts varied with cache history). Fix: `initializeCaptures` now resets **all** columns. Cache-hit and cache-miss runs are now identical.
+
+**Verification:** `p=1` unchanged (WIN, 14 passes, 15 plys on `scotlandyard-all`, k=2). `p=2` now propagates over ~53 passes instead of stalling at 2. Verdicts are monotonic in visibility (k=2: `p=1` WIN, `p≥2` LOSS), as required — more visibility can never hurt the cops. For `p ≥ 3`, convergence is fast because the depth-`p` robber cloud covers a large fraction of the graph, making the max-col AND rarely satisfiable; this is expected, not a stall.
+
+**Caching caveat:** the filled AuxGraph cache is keyed by `algoName`, filename, `k`, `p` — *not* by solver-logic version. After any algorithm change, delete the stale `cache/k_cops_*vis*` files or the solver will replay an old (possibly buggy) DP fill via a cache hit.
+
+- Development priority: resolve visibility correctness before returning to token/ticket work. *(Correctness mechanics now in place; verdict values still want a ground-truth sanity check — e.g. confirm k=3 wins at `p=2` where k=2 loses.)*
