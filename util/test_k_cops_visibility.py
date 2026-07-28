@@ -118,8 +118,8 @@ def classify_exit(code: int) -> str:
     return f"exit{code}"
 
 
-def run_one(matrix: Path, k: int, p: int, timeout: float) -> dict:
-    cmd = [str(EXE), str(matrix.relative_to(REPO_ROOT)), str(k), str(p)]
+def run_one(exe: Path, matrix: Path, k: int, p: int, timeout: float) -> dict:
+    cmd = [str(exe), str(matrix.relative_to(REPO_ROOT)), str(k), str(p)]
     t0 = time.perf_counter()
     try:
         proc = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True,
@@ -160,10 +160,17 @@ def main():
                     help="Include large graphs (scotlandyard*, cycle100, line100, tree127).")
     ap.add_argument("--csv", type=str, default=str(OUT_CSV),
                     help="Where to write the results CSV.")
+    ap.add_argument("--exe", type=str, default=str(EXE),
+                    help="Solver executable to test (default: k_cops_visibility.exe). "
+                         "When testing an alternative solver, also pass --csv so the "
+                         "baseline results file is not overwritten.")
     args = ap.parse_args()
 
-    if not EXE.exists():
-        sys.exit(f"Executable not found: {EXE}")
+    exe = Path(args.exe)
+    if not exe.is_absolute():
+        exe = REPO_ROOT / exe
+    if not exe.exists():
+        sys.exit(f"Executable not found: {exe}")
     ensure_runtime_on_path()
 
     filters = [s.strip() for s in args.graphs.split(",") if s.strip()]
@@ -191,7 +198,7 @@ def main():
 
     jobs.sort(key=lambda j: j[0])  # cheapest first
 
-    print(f"Executable : {EXE}")
+    print(f"Executable : {exe}")
     print(f"Matrices   : {MATRIX_DIR}  ({len(matrices)} files)")
     print(f"Jobs       : {len(jobs)} (timeout {args.timeout:.0f}s, "
           f"state budget {args.state_budget:.1e} B)\n")
@@ -204,7 +211,7 @@ def main():
     rows = []
     suite_t0 = time.perf_counter()
     for est, n, mx, k, p in jobs:
-        res = run_one(mx, k, p, args.timeout)
+        res = run_one(exe, mx, k, p, args.timeout)
         row = {"graph": mx.stem, "n": n, "k": k, "p": p,
                "est_state_mb": round(est / 1e6, 1)}
         row.update(res)

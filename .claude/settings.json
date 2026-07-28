@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python build.py)",
+      "Bash(python util/test_k_cops_visibility.py --exe build/bin/k_cops_visibility_v2.exe --csv console_outputs/test_results_v2.csv --timeout 90)",
+      "Bash(python \"C:\\\\Users\\\\linde\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--MyStuff-CodingProjects-CopsAndRobbers\\\\1b28aca6-2086-4ccf-83e1-651170499cbb\\\\scratchpad\\\\compare_v1_v2.py\")",
+      "Bash(python util/test_k_cops_visibility.py --exe build/bin/k_cops_visibility_v2.exe --csv console_outputs/test_results_v2.csv --timeout 300)"
+    ]
+  }
+}
