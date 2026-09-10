@@ -1,0 +1,11 @@
+there is this trick where in cops and robbers we can compute some information where we give a bit more power to the cops and or little less power to the rober, and somehow information you contain - contains also information for the actual game. So with tokens we can give more or less power to cop or robber or combined and we could extract stuff later from dp table. So we can just compute fromm dp table all the restrictions - that is again the way we can do. 
+
+The way to test would be extracting an aux graph so we can see and run a small other program to test if the output was marked correctly. 
+
+ANother thing is splitting the data to compute. 
+
+There is a figure showing how to modify aux graph to force the robber to use the same token. So its cops turn to move on the left and now there are options to go, and we assume there are only 2 types of tokens, so from the cops current position there can be blue or red or both and you have all options on the left. Cop can take edges that will lead robber to a dead end. So lets say we are in configuration where they are close and cop uses an edge that forces robber into dead end - it will be the end of the game. Because in real version of Scotland yard you have to move and we assume there are no edges to ourselves. For the purpose of the real graph we would remove the edge or keep track of what type of edge we used. 
+
+so we might will need either new nodes or perhaps using different graphs with different edges on each iteration. But this is another starting point. On May 14th the image was sent by email. 
+
+Right now biggest step is to test 1/p visiblity
