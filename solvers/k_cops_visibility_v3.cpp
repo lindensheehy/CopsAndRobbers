@@ -61,7 +61,7 @@ bool loadGraphFile(const char* filename_param, int k_param, int p_param) {
                 adjMatrix.addEdge(u, v);
             }
         }
-        
+
     }
 
     // PackedAdjMatrix is entirely flat, so sizeof() captures 100% of its footprint
@@ -81,7 +81,7 @@ bool buildAuxGraph() {
         std::cerr << "Error: Unable to generate aux graph.\n";
         return 1;
     }
-    
+
     return 0;
 
 }
@@ -174,17 +174,17 @@ bool mainLoop() {
                     {
                         /*
                             Simulate cops turn
-    
+
                             In this step, we let the cops play one possible move from the current tip of the DFS search. This effectively runs the search to one more depth than where the tip last was.
-    
+
                             Here we trim the last robber set based on the new cop positions.
-    
+
                             Either:
                             The new robbers set is empty. In this case, we have found a winning path. We mark the node. We save the depth we are currently at (since it is necessarily <= the current bestDepth), and continue with the rest of the DFS
                             OR...
                             The new robbers set is not empty. No win was found on this iteration. We pass through to simulating the robbers turn
                         */
-                        
+
                         // Trim robber set
                         uint8_t* copPositions = &(aux.configs[nextcId]);
                         for (int i = 0; i < k; i++) {
@@ -198,50 +198,75 @@ bool mainLoop() {
                             continue;
                         }
                     }
-                    
+
                     {
                         /*
                             Simulate robbers turn
-                            
-                            Because at this point the robber set must NOT be empty, we then 
+
+                            Because at this point the robber set must NOT be empty, we then
                             simulate the robbers turn.
-                            
+
                             This is where we either:
-    
+
                             Expand the robbers set with all possible next moves (for a column in the middle of the aux graph)
                             OR...
-                            Play the robbers last invisible turn, and compute the for all in 
+                            Play the robbers last invisible turn, and compute the for all in
                             the last column transition
                         */
 
                         // Expand robbers set by 1 move
-                        
-                        
+                        newRobberSet = adjMatrix.expand(newRobberSet);
+
                         // If its a leaf node (last cop turn column) - robber becomes VISIBLE
                         if (stack.size() == p) {
 
                             // Search possible robber transitions from this leaf
-                            // If "for all" holds, we can mark this node
+                            bool allMarked = true;
+                            uint8_t activeNodes[200];
+                            size_t nodeCount = 0;
                             
-                            // If we can mark it
-                            {   
-                                // Record this as the best found depth
-                                bestDepth = p * 2; 
+                            // Extract nodes
+                            if (adjMatrix.extractVertices(newRobberSet, activeNodes, 200, nodeCount)) {
+                                std::cerr << "FATAL: Robber set exceeded maximum buffer size.\n";
+                                exit(1);
+                            }
+
+                            int maxChildDepth = -1; // Track the longest marked path
+
+                            for (size_t i = 0; i < nodeCount; ++i) {
+                                uint8_t r_end = activeNodes[i];
+                                
+                                auto* targetState = aux.getState(nextcId, r_end, 1);
+                                
+                                // Check the DP Table
+                                if (!targetState->marked) {
+                                    allMarked = false;
+                                    break;
+                                }
+
+                                // Robber will choose the path that maximizes their survival time
+                                if (targetState->depth > maxChildDepth) {
+                                    maxChildDepth = targetState->depth;
+                                }
                             }
                             
-                            // Pop from stack
+                            // If "for all" holds, we can mark this node
+                            if (allMarked) {
+                                // Branch cost is the worst-case robber response + 1
+                                // Note: if you are strictly tracking plys instead of macro-turns, 
+                                // this might need to be maxChildDepth + (p * 2)
+                                int branchDepth = maxChildDepth + 1; 
+
+                                // Cop wants the fastest win, so conditionally update bestDepth
+                                if (branchDepth < bestDepth) {
+                                    bestDepth = branchDepth;
+                                }
+                            }
+
                             stack.pop_back();
-
-                            // Go to the next node in the stack
                             continue;
-                            
-                        // Its not a leaf node (middle column)
-                        // One to one mapping, no "for all" to be done
-                        } else {
-                            
-                            // Expand the robbers set based on reachable nodes from the current set
-
                         }
+
                     }
 
                     /*
@@ -274,7 +299,7 @@ bool mainLoop() {
                 }
 
             }
-            
+
         }
     }
 
