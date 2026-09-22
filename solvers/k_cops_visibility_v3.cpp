@@ -2,6 +2,7 @@
 #include "AdjacencyList.h"
 #include "AuxGraph.h"
 #include "VertexBitField.h"
+#include "PackedAdjMatrix.h"
 #include "Allocator.h"
 #include "Profiler.h"
 #include "CacheManager.h"
@@ -29,6 +30,8 @@ Allocator mem;
 AdjacencyList adj;
 AuxGraph<DataItem> aux;
 
+PackedAdjMatrix adjMatrix;
+
 bool loadGraphFile(const char* filename_param, int k_param, int p_param) {
 
     filename = filename_param;
@@ -42,15 +45,27 @@ bool loadGraphFile(const char* filename_param, int k_param, int p_param) {
         return 1;
     }
 
-    if (g.nodeCount > 255) {
-        std::cerr << "Error: graph exceeds the 255-vertex format limit.\n";
+    if (g.nodeCount > 200) {
+        std::cerr << "Error: graph exceeds the 200-vertex limit for PackedAdjMatrix.\n";
         return 1;
     }
 
     N = g.nodeCount;
 
-    adj.constructFrom(&g);
-    mem.trackExternal("Graph Adj List", adj.getMemoryFootprint());
+    // Populate the packed bitwise adjacency matrix
+    for (int u = 0; u < N; ++u) {
+
+        // Start v at u to only scan the upper triangle (undirected)
+        for (int v = u; v < N; ++v) {
+            if (g.getEdge(u, v)) {
+                adjMatrix.addEdge(u, v);
+            }
+        }
+        
+    }
+
+    // PackedAdjMatrix is entirely flat, so sizeof() captures 100% of its footprint
+    mem.trackExternal("Packed Adj Matrix", sizeof(PackedAdjMatrix));
 
     return 0;
 
@@ -138,6 +153,7 @@ bool mainLoop() {
 
                 int bestDepth = INT_MAX;
 
+                // DFS search
                 while (stack.size() > 0) {
 
                     // Get top of stack
@@ -155,19 +171,19 @@ bool mainLoop() {
 
                     VertexBitField newRobberSet = current.robberSet;
 
-                    /*
-                        Simulate cops turn
-
-                        In this step, we let the cops play one possible move from the current tip of the DFS search. This effectively runs the search to one more depth than where the tip last was.
-
-                        Here we trim the last robber set based on the new cop positions.
-
-                        Either:
-                        The new robbers set is empty. In this case, we have found a winning path. We mark the node. We save the depth we are currently at (since it is necessarily <= the current bestDepth), and continue with the rest of the DFS
-                        OR...
-                        The new robbers set is not empty. No win was found on this iteration. We pass through to simulating the robbers turn
-                    */
                     {
+                        /*
+                            Simulate cops turn
+    
+                            In this step, we let the cops play one possible move from the current tip of the DFS search. This effectively runs the search to one more depth than where the tip last was.
+    
+                            Here we trim the last robber set based on the new cop positions.
+    
+                            Either:
+                            The new robbers set is empty. In this case, we have found a winning path. We mark the node. We save the depth we are currently at (since it is necessarily <= the current bestDepth), and continue with the rest of the DFS
+                            OR...
+                            The new robbers set is not empty. No win was found on this iteration. We pass through to simulating the robbers turn
+                        */
                         
                         // Trim robber set
                         uint8_t* copPositions = &(aux.configs[nextcId]);
@@ -183,23 +199,25 @@ bool mainLoop() {
                         }
                     }
                     
-                    /*
-                        Simulate robbers turn
-                        
-                        Because at this point the robber set must NOT be empty, we then 
-                        simulate the robbers turn.
-                        
-                        This is where we either:
-
-                        Expand the robbers set with all possible next moves (for a column in the middle of the aux graph)
-                        OR...
-                        Play the robbers last invisible turn, and compute the for all in 
-                        the last column transition
-                    */
                     {
-                        // If its a leaf node (last cop turn column)
-                        // This means the robber becomes now VISIBLE on this 2 ply turn (cop moves, then robber moves, they are now visible)
-                        // We need to check the for all condition, as normal
+                        /*
+                            Simulate robbers turn
+                            
+                            Because at this point the robber set must NOT be empty, we then 
+                            simulate the robbers turn.
+                            
+                            This is where we either:
+    
+                            Expand the robbers set with all possible next moves (for a column in the middle of the aux graph)
+                            OR...
+                            Play the robbers last invisible turn, and compute the for all in 
+                            the last column transition
+                        */
+
+                        // Expand robbers set by 1 move
+                        
+                        
+                        // If its a leaf node (last cop turn column) - robber becomes VISIBLE
                         if (stack.size() == p) {
 
                             // Search possible robber transitions from this leaf
