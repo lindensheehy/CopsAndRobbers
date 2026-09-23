@@ -52,6 +52,9 @@ bool loadGraphFile(const char* filename_param, int k_param, int p_param) {
 
     N = g.nodeCount;
 
+    adj.constructFrom(&g);
+    mem.trackExternal("Graph Adj List", adj.getMemoryFootprint());
+
     // Populate the packed bitwise adjacency matrix
     for (int u = 0; u < N; ++u) {
 
@@ -123,7 +126,7 @@ bool mainLoop() {
         for (size_t cId = 0; cId < aux.configCount; cId++) {
             for (uint8_t r = 0; r < N; r++) {
 
-                DataItem* root = aux.getState(cId, r, 1);
+                DataItem* root = aux.getState(cId, r, 0);
 
                 // Skip already marked nodes
                 if (root->marked) continue;
@@ -163,17 +166,29 @@ bool mainLoop() {
                     // Get top of stack
                     StackItem& current = stack.back();
 
-                    // If we have iterated over all transitions from the current top of the stack
-                    if (current.nextTransition > current.lastTransition) {
+                    // If we have iterated over all transitions from the current top of the stack.
+                    // getCopTransitions hands back an EXCLUSIVE end index, so this is >=
+                    if (current.nextTransition >= current.lastTransition) {
                         stack.pop_back();
                         continue;
                     }
 
-                    // Get next transition from current
-                    size_t nextcId = aux.transitions[current.nextTransition];
+                    // Current search depth in cop steps. The transition we are about to play
+                    // moves the cops from depth-1 to depth, so it banks 2 more plys
+                    const int depth = (int)stack.size();
+
+                    // Get next transition from current.
+                    // AuxGraph stores transition targets pre-multiplied by N so that consumers can
+                    // index states flatly as transitions[i] + r, so the raw value is a state base,
+                    // not a config id. Undo that here
+                    size_t nextcId = aux.transitions[current.nextTransition] / N;
                     current.nextTransition++;
 
                     VertexBitField newRobberSet = current.robberSet;
+
+                    // The cops positions AFTER this transition. Both the cop ply and the robber
+                    // ply below prune against these, never against the previous config
+                    const uint8_t* copPositions = &(aux.configs[nextcId * k]);
 
                     {
                         /*
@@ -190,16 +205,22 @@ bool mainLoop() {
                         */
 
                         // Trim robber set
-                        uint8_t* copPositions = &(aux.configs[nextcId]);
                         for (int i = 0; i < k; i++) {
                             newRobberSet.reset(copPositions[i]);
                         }
 
                         // If the robber set is empty
                         if (newRobberSet.none()) {
-                            bestDepth = stack.size() * 2;
+
+                            // The capture landed on the cops ply, so the robbers reply at this
+                            // depth is never played: 2(depth-1) banked plys, plus this one
+                            if (2 * depth - 1 < bestDepth) bestDepth = 2 * depth - 1;
+
+                            // 2*depth-1 is the floor for every sibling at this depth too, so
+                            // nothing left on this level can improve on it. Abandon the level
                             stack.pop_back();
                             continue;
+
                         }
                     }
 
@@ -218,19 +239,38 @@ bool mainLoop() {
                             the last column transition
                         */
 
-                        // Expand robbers set by 1 move
-                        newRobberSet = adjMatrix.expand(newRobberSet);
+                        // Expand robbers set by 1 move. The robber has no self edge
+                        // (SelfEdgeRobber::FALSE), so passing is not a legal move
+                        newRobberSet = adjMatrix.expand(newRobberSet, false);
+
+                        // Any robber whose only moves land on a cop is caught on its own ply.
+                        // This compares against the NEW cop positions, so a robber stepping onto
+                        // a vertex a cop just vacated correctly survives
+                        for (int i = 0; i < k; i++) {
+                            newRobberSet.reset(copPositions[i]);
+                        }
+
+                        // If every surviving robber was forced onto a cop
+                        if (newRobberSet.none()) {
+
+                            if (2 * depth < bestDepth) bestDepth = 2 * depth;
+
+                            // Unlike the cop ply case, a sibling at this depth could still catch
+                            // one ply sooner (2*depth-1), so the level is NOT abandoned
+                            continue;
+
+                        }
 
                         // If its a leaf node (last cop turn column) - robber becomes VISIBLE
-                        if (stack.size() == p) {
+                        if (depth == p) {
 
                             // Search possible robber transitions from this leaf
                             bool allMarked = true;
-                            uint8_t activeNodes[200];
+                            uint8_t activeNodes[256];
                             size_t nodeCount = 0;
                             
                             // Extract nodes
-                            if (adjMatrix.extractVertices(newRobberSet, activeNodes, 200, nodeCount)) {
+                            if (adjMatrix.extractVertices(newRobberSet, activeNodes, 256, nodeCount)) {
                                 std::cerr << "FATAL: Robber set exceeded maximum buffer size.\n";
                                 exit(1);
                             }
@@ -241,7 +281,7 @@ bool mainLoop() {
                             for (size_t i = 0; i < nodeCount; ++i) {
                                 uint8_t r_end = activeNodes[i];
                                 
-                                DataItem* targetState = aux.getState(nextcId, r_end, 1);
+                                DataItem* targetState = aux.getState(nextcId, r_end, 0);
                                 
                                 if (!targetState->marked) {
                                     allMarked = false;
@@ -265,7 +305,8 @@ bool mainLoop() {
 
                             }
 
-                            stack.pop_back();
+                            // Do NOT pop. The remaining transitions on this frame are the other
+                            // candidate final cop moves, and the cops get to choose the best one
                             continue;
                         }
 
@@ -282,8 +323,10 @@ bool mainLoop() {
                         So our job is to take the new node we just found, find the transitions it must iterate over for its own recursive DFS, then push it to the stack
                     */
 
-                    // If the next depth, AFTER this node we just checked, will be worse than the best depth we found already, we dont add a new node to the stack
-                    if ((stack.size() * 2) + 1 >= bestDepth) {
+                    // The cheapest outcome anywhere below the node we are about to push is a
+                    // capture on the cops ply at depth+1, costing 2*(depth+1)-1 plys. If that
+                    // cannot beat what we already have, dont add a new node to the stack
+                    if ((2 * depth) + 1 >= bestDepth) {
                         continue;
                     }
 
@@ -300,7 +343,9 @@ bool mainLoop() {
 
                 }
 
-                if (bestDepth < INT_MAX) {
+                // markedRound is a 7 bit field. A capture too slow to fit is left unproven
+                // rather than silently truncated into a small, wrong value
+                if (bestDepth < MAX_ROUND_COUNT) {
                     root->marked = true;
                     root->markedRound = bestDepth;
                     newMarksThisIteration = true;
@@ -372,18 +417,18 @@ bool findFinalResult() {
 
 bool outputData() {
 
-    // std::string algoName = "k_cops_v2_" + std::to_string(p) + "vis";
+    std::string algoName = "k_cops_v3_" + std::to_string(p) + "vis";
 
-    // std::cout << "Saving filled AuxGraph to cache... ";
+    std::cout << "Saving filled AuxGraph to cache... ";
 
-    // bool failed = CacheManager::saveAuxGraph<DataItem>(algoName, filename, k, p, SelfEdgeCop::FALSE, SelfEdgeRobber::FALSE, &aux);
+    bool failed = CacheManager::saveAuxGraph<DataItem>(algoName, filename, k, p, SelfEdgeCop::FALSE, SelfEdgeRobber::FALSE, &aux);
 
-    // if (failed) {
-    //     std::cout << "Failed!\n";
-    //     return 1;
-    // }
+    if (failed) {
+        std::cout << "Failed!\n";
+        return 1;
+    }
 
-    // std::cout << "Success!\n";
+    std::cout << "Success!\n";
 
     return 0;
 
