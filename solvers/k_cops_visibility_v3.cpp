@@ -115,14 +115,18 @@ bool mainLoop() {
 
     // Macro Iteration
     while (true) {
+
         passes++;
+        bool newMarksThisIteration = false;
 
         // Per node in the column
         for (size_t cId = 0; cId < aux.configCount; cId++) {
             for (uint8_t r = 0; r < N; r++) {
 
+                DataItem* root = aux.getState(cId, r, 1);
+
                 // Skip already marked nodes
-                if (aux.getState(cId, r, 1)->marked) continue;
+                if (root->marked) continue;
 
                 struct StackItem {
                     size_t cId;
@@ -231,36 +235,34 @@ bool mainLoop() {
                                 exit(1);
                             }
 
-                            int maxChildDepth = -1; // Track the longest marked path
+                            // Robber picks longest catch
+                            int maxChildDepth = -1;
 
                             for (size_t i = 0; i < nodeCount; ++i) {
                                 uint8_t r_end = activeNodes[i];
                                 
-                                auto* targetState = aux.getState(nextcId, r_end, 1);
+                                DataItem* targetState = aux.getState(nextcId, r_end, 1);
                                 
-                                // Check the DP Table
                                 if (!targetState->marked) {
                                     allMarked = false;
                                     break;
                                 }
 
-                                // Robber will choose the path that maximizes their survival time
-                                if (targetState->depth > maxChildDepth) {
-                                    maxChildDepth = targetState->depth;
+                                if (targetState->markedRound > maxChildDepth) {
+                                    maxChildDepth = targetState->markedRound;
                                 }
                             }
                             
                             // If "for all" holds, we can mark this node
                             if (allMarked) {
-                                // Branch cost is the worst-case robber response + 1
-                                // Note: if you are strictly tracking plys instead of macro-turns, 
-                                // this might need to be maxChildDepth + (p * 2)
-                                int branchDepth = maxChildDepth + 1; 
+
+                                int branchDepth = maxChildDepth + (p * 2); 
 
                                 // Cop wants the fastest win, so conditionally update bestDepth
                                 if (branchDepth < bestDepth) {
                                     bestDepth = branchDepth;
                                 }
+
                             }
 
                             stack.pop_back();
@@ -298,10 +300,91 @@ bool mainLoop() {
 
                 }
 
-            }
+                if (bestDepth < INT_MAX) {
+                    root->marked = true;
+                    root->markedRound = bestDepth;
+                    newMarksThisIteration = true;
+                }
 
+            }
         }
+
+        if (!newMarksThisIteration) break;
+
     }
 
     return 0;
+}
+
+bool findFinalResult() {
+
+    std::cout << "\n--- FINAL VERDICT ---\n";
+
+    int bestCId = -1;
+    uint8_t overallMinWorstCase = MAX_ROUND_COUNT;
+
+    for (size_t cId = 0; cId < aux.configCount; ++cId) {
+
+        bool universalWin = true;
+        uint8_t worstCasePlys = 0;
+
+        for (int r = 0; r < adj.nodeCount; ++r) {
+
+            DataItem* state = aux.getState(cId, r, 0);
+
+            if (!state->marked) {
+                universalWin = false;
+                break;
+            }
+
+            if (state->markedRound > worstCasePlys) {
+                worstCasePlys = state->markedRound;
+            }
+        }
+
+        if (universalWin && worstCasePlys < overallMinWorstCase) {
+            overallMinWorstCase = worstCasePlys;
+            bestCId = cId;
+        }
+    }
+
+    if (bestCId != -1) {
+        std::cout << "RESULT: WIN. " << k << " Cop(s) CAN win this graph with 1/" << p << " visibility.\n";
+
+        std::cout << "Optimal Cop Start Positions: (";
+        for (int i = 0; i < k; ++i) {
+            std::cout << (int)aux.configs[bestCId * k + i] << (i == k - 1 ? "" : ", ");
+        }
+        std::cout << ")\n";
+
+        std::cout << "Capture Time: " << (int)overallMinWorstCase << " plys.\n";
+
+    } else {
+        std::cout << "RESULT: LOSS. " << k << " Cop(s) CANNOT guarantee a win.\n";
+        std::cout << "(The Robber has a strategy to survive indefinitely against any start).\n";
+    }
+
+    mem.print();
+
+    return 0;
+
+}
+
+bool outputData() {
+
+    // std::string algoName = "k_cops_v2_" + std::to_string(p) + "vis";
+
+    // std::cout << "Saving filled AuxGraph to cache... ";
+
+    // bool failed = CacheManager::saveAuxGraph<DataItem>(algoName, filename, k, p, SelfEdgeCop::FALSE, SelfEdgeRobber::FALSE, &aux);
+
+    // if (failed) {
+    //     std::cout << "Failed!\n";
+    //     return 1;
+    // }
+
+    // std::cout << "Success!\n";
+
+    return 0;
+
 }

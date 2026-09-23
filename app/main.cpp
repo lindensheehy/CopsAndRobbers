@@ -7,7 +7,6 @@
 #include <vector>
 #include <string>
 
-// Notice the updated signature
 bool loadGraphFile(const char* filename, int k, int p);
 bool buildAuxGraph();
 bool initializeCaptures();
