@@ -1,0 +1,57 @@
+
+while (true) -> macro steps
+for (cId) -> top to bottom
+
+for -> left to right
+for -> per node in queue
+for -> add neighbors to queue
+
+so the main idea is that you still follow rule implicitly. 
+
+You go through the tree and and loops kinda explain it but the main premise is the the starting node (the one that spawns
+the tree) gets marked under 3 conditions: its already a forced win (step 0), when walking through tree we win if 
+we meet a node already marked as winning since it is cops turn they can just take that path and boom - win. 
+or 
+we can go ahead and finish the tree and on the LAST "fake" column we got for all for all rule - where for each state of robber we need to find a cop robber config that 
+is fully marked. 
+        !!!This doc shall be adjusted (TBD) after the meeting on september 18th.!!!
+
+we utilize a queue where as we building tree we add more neighbors to check. and we need a code that spawns and builds the tree on the fly.
+
+I think we got infrastructure to actually solve 1 column by parts - run the program  a bit, stop, store what we have and continue later, but it is still yet to be implemented.
+
+so we believe we can redo the algorithm in much cleaner way:
+
+we imagine that we generate possible robber states, but augmenting the ones where -
+ it is already winning state (lets say on cops invisibility turn - so robber got invisible but
+  its specifically cops turn (on robbers turn the set can only expand man) the set only decreases, 
+  again, specifically on cops turn, and it decreases if - next possible transition is one of the winning 
+  states, or this state is literally empty cuz robber cant go anywhere - forced win where cops are standing 
+  on all possible positions and the one left is standing on same node which is a winning position (cop and robber same node), 
+  or lets say its a node where later will lead in narrow hallway which we already computed so one of the again starting positoon man -
+   it seems it checks out. Now also yk we gotta understand how does current code find neighbors - maybe thats where complexities and bitmasks come in?
+
+now we might not be able to use a queue due to memory constraints we might use a stack:
+we may use dfs going far just on branch to leaf node, and then go back and explore other neighbors instead of immidietely keeping all neighbors,
+
+we just keep a stack and go down the tree as far as we can get and go back -  Isuspect current code is doing it.
+
+ok so it is useless to have rule I think to have an empty set I think that is a sign truly that its a win - 
+cops are all on one place and then robber has set of 1 element (node 5) - cops turn boom we remove node 5 cuz we can move there, 
+its an empty set, we will have to go compute for better capture but we do not need to go down this branch further - thats it, in this branch cops win 
+
+The idea is to make a cleaner solver that keeps going through the DP table, checking each cop configuration and robber starting position until 
+a full pass finds no new wins. For each position we have not solved yet, we build a tree on the fly, preferably using a stack and DFS: follow one 
+branch down, then go back and try the other moves instead of keeping every branch in memory. Each node keeps the cop positions, the set of possible 
+robber positions, and how far we are into the visibility interval. We take a legal cop move from the existing transition table and remove any robber
+ positions now occupied by cops. If the set becomes empty, boom—every possibility was captured, so this branch wins and we stop going deeper. Otherwise, 
+ the robber moves: we replace its set with the possible neighboring positions and remove destinations occupied by cops. This can also leave an empty set.
+  If we reach the end of the visibility interval and there are still possible robber positions left, the robber becomes visible. We then check **every 
+  remaining robber position with the same final cop configuration**: is each one already marked as losing for the robber, meaning winning for the cops?
+   If yes, this branch wins, because wherever the robber appears, the cops have a winning continuation. If even one is not marked, this branch does not
+    prove a win in the current pass, so we go back and try another branch. One winning branch is enough to establish that the original starting state
+     wins, although we may keep checking other branches for a faster capture. States where a cop and robber already share a vertex are marked first 
+     with capture time zero. During the blind part, we remove actual captures—not positions that merely have a separate exact-position entry marked 
+winning, since the cops do not yet know where the robber is. Bit masks are just a fast way to store and update these sets. We may also be able to 
+save progress and continue later using the existing storage infrastructure, but that still needs to be implemented. **This draft will be adjusted 
+after the September 18 meeting.**

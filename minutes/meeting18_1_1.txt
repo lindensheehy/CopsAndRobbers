@@ -1,0 +1,31 @@
+can it happen that we arrive at last node and we first see a slower capture rather than a faster one. 
+
+There is a possibility to encounter a number with longer capture earlier than faster capture
+
+We need numbers for fastest capture. 
+
+
+maybe we can just go all the way to dfs. 
+
+
+there is a possibility of only doing the limited visibility only...
+
+And it will take 6 million seconds to compute with our algorithm.
+
+Now there is cloud computing storage,
+there is gpu to use, 
+
+
+or tokens - maybe we go do tokens.
+
+there is also to consider maybe we care that there might be a set of preset starting positions
+
+lets say we spend some time on gpu thing - and we need to get to conclusion. 
+
+
+we go to right now to finish the algorithm, try to add gpu,
+
+tokens on the side asap already pitched go ahead figure out either small problem of figuring out 1 path and tokens contraints or immidietely big path for all tokens.
+
+
+next meeting: October 2nd 2:30 but sometimes meeting takes longer or earlier. Might be earlier.
