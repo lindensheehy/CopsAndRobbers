@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 # --- CONFIGURATION ---
-DEFAULT_ASSET_DIR = "../assets"
+DEFAULT_ASSET_DIR = "assets"
 INPUT_CACHE_FILE = os.path.join(DEFAULT_ASSET_DIR, "master_cache.json")
 
 class MasterApp:
