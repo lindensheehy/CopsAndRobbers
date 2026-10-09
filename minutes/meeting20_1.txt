@@ -1,0 +1,24 @@
+So we met with J Lou and we described the idea to go ahead and play full 24 moves, and you never loop back, you start first itteration, you mark nodes, and then when you get to the end
+thats it. 
+
+So now we have like 48 columns, you do cops, robbers, on first turn robber is visible and then cops move and robber become invisible - that is itteration 2. 
+
+itteration 10 is again they turn invisible. Basically you play full 24 so you can do pattern. 
+
+we  discussed calculations. 
+
+and we explained what is our solutions: if they are visible it is easy, if they are not visible - we look at each robber position, and if any of possible moves do not appear in that 
+set of moves we trim it, or we completely copy a move from the table if all robber positions require same move that happens to be best move from full visibility solver.
+
+there is a concern that when it is visible - it is not really may guarantee that it is the right move when it is about to become invisible. 
+
+Now interesting part is in original game you also do not know where it will be. 
+
+J Lou said he will send starting positioning, We need to go ahead and make the algorithm for 4 cops, and then go ahead and do invisible, J Lou wants to have
+full visibility map as well and therefore it is not a waste of time. 
+
+But we keep in mind the scepticism of the full visibility step because we do not see a prove.
+
+we keep thinkings about reasons why its correct and find why its NOT - thats how you work in research.
+
+Next meeting: Friday at 2 the 16th. 
