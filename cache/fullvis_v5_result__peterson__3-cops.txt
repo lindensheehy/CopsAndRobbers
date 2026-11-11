@@ -1,0 +1,16 @@
+format=CFV5_RESULT_V1
+status=oracle_saved_and_validated
+graph=peterson
+vertices=10
+cops=3
+visibility=1
+cop_stay=0
+robber_stay=0
+config_count=220
+state_count=2200
+best_config_id=23
+best_ply=1
+positions=0,2,6
+graph_max_degree=3
+solved_robber_base=4
+max_exact_robber_ply=122

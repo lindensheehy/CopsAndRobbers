@@ -1,0 +1,16 @@
+format=CFV5_RESULT_V1
+status=oracle_saved_and_validated
+graph=grid36
+vertices=36
+cops=2
+visibility=1
+cop_stay=0
+robber_stay=0
+config_count=666
+state_count=23976
+best_config_id=172
+best_ply=9
+positions=5,7
+graph_max_degree=4
+solved_robber_base=5
+max_exact_robber_ply=121

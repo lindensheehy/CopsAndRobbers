@@ -1,0 +1,16 @@
+format=CFV5_RESULT_V1
+status=oracle_saved_and_validated
+graph=dodecahedron
+vertices=20
+cops=3
+visibility=1
+cop_stay=0
+robber_stay=0
+config_count=1540
+state_count=30800
+best_config_id=8
+best_ply=5
+positions=0,0,8
+graph_max_degree=3
+solved_robber_base=4
+max_exact_robber_ply=122
