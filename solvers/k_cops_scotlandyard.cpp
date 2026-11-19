@@ -8,7 +8,7 @@
  *
  * Question answered: from a FIXED cop start (default: the V5 oracle's best full-visibility
  * start), can the cops guarantee capture within H rounds (default 24) when the robber is only
- * revealed after robber moves 3, 8, 13, 18, 24?  Each initially visible robber vertex is its
+ * revealed every p robber moves (or at explicit SY_REVEALS rounds)?  Each initially visible robber vertex is its
  * own root (cops may react to it), or one hidden initial cloud is solved with SY_HIDDEN_START.
  *
  * GAME (identical to the prototype and to k_cops_fullvis_v5, whose oracle we read)
@@ -30,32 +30,39 @@
  *
  * PERFORMANCE (vs. the prototype)
  * - scoreCandidates(): batch oracle scoring, AVX2 masked-max over the contiguous oracle row
- *   (runtime-dispatched, scalar fallback) with software prefetch. This is the seam for a future
- *   CUDA backend: it is a pure function of (candidate ids, cloud) -> bound bytes.
- * - Allocation-free joint move generation (odometer with symmetric-duplicate skipping,
- *   per-thread LIFO arena) instead of std::function recursion + vector + sort.
+ *   (runtime-dispatched, scalar fallback) with software prefetch. Optional CUDA resident
+ *   nibble oracle scores large batches; ambiguous >=14 bounds are refined on the CPU.
+ * - Joint move generation with symmetric-duplicate skipping, sorting/deduplication,
+ *   and bounded per-thread LIFO arenas shared under one total arena budget.
  * - Shared, lossy, lock-free (seqlock) transposition table with full keys (no false hits),
  *   shared by all threads.
  * - Work-stealing-lite parallelism: dynamic root queue, plus YBWC-style splitting of OR (cop move)
  *   and AND (reveal) nodes when workers are idle, with cancellation of losing/irrelevant siblings.
  * - Oracle pages are pre-warmed into the file cache so the search doesn't stall on random faults.
  *
- * CONFIGURATION: <graph> <k> [p] from app/main.cpp (p is ignored; the reveal schedule replaces it),
+ * CONFIGURATION: <graph> <k> [p] (periodic visibility unless SY_REVEALS overrides it),
  * plus optional environment variables:
  *   SY_ORACLE        oracle path (default cache/fullvis_v5_strategy__<graph>__<k>-cops.bin)
  *   SY_ORACLE_MODE   bound (default) | order (sort only) | off (no oracle, needs SY_START)
  *   SY_START         cop start "a,b,c,d" (default: oracle best start)
  *   SY_ROUNDS        horizon H (default 24)
- *   SY_REVEALS       reveal rounds "3,8,13,18,24" (default) or "none"
+ *   SY_REVEALS       explicit reveal rounds or "none"; overrides positional p
+ *   SY_PERIOD        periodic reveal interval; mutually exclusive with SY_REVEALS
+ *   Default: positional p is the periodic reveal interval (p=1 full visibility).
+ *   SY_ORACLE_MANIFEST graph/payload SHA-256 + explicit completion attestation
+ *   SY_TRUST_LEGACY_ORACLE=1 explicitly trust authentic completed legacy input
  *   SY_ROBBERS       "all" (default) or list of initially visible robber vertices
  *   SY_HIDDEN_START  list: ONE initially hidden robber cloud instead of visible roots
  *   SY_THREADS       worker threads (default hardware concurrency)
- *   SY_TT_MB         transposition table MiB (default 2048); SY_TT_ENTRIES overrides (0 = off)
+ *   SY_TT_MB         transposition table MiB (default 1024); SY_TT_ENTRIES overrides (0 = off)
  *   SY_SPLIT_ROUNDS  deepest round at which idle workers may split a node (default 8)
  *   SY_FORCE_SPLIT   1 = split whenever possible (testing the parallel path)
  *   SY_MAX_SECONDS   time budget (default 0 = unlimited); SY_MAX_NODES node budget
  *   SY_WARM          0 disables oracle pre-warming
- *   SY_CHECKPOINT    completed-root checkpoint file; SY_RESUME=1 resumes from it
+ *   SY_CHECKPOINT    checksummed root checkpoint plus .memo completed-subproblem snapshot
+ *   SY_RESUME=1     restores both; active recursion restarts using proved memo entries
+ *   SY_ARENA_MB     total worker arena cap (default 2048); SY_MAX_RSS_MB soft cap (24576)
+ *   SY_GPU          off (default), auto (calibrated), required, verify (CPU comparison)
  *   SY_RESULTS       results JSON path (default cache/k_cops_scotlandyard__<graph>__<k>-cops__results.json)
  *
  * A time/node budget or Ctrl+C yields UNKNOWN for unfinished roots, never LOSS.
@@ -69,6 +76,7 @@
 #include "VertexBitField.h"
 
 #include <algorithm>
+#include "sy_provenance.hpp"
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -83,6 +91,7 @@
 #include <memory>
 #include <mutex>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -100,7 +109,9 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <psapi.h>
 #else
+#include <dlfcn.h>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -137,16 +148,17 @@ uint64_t choose[MAX_N + MAX_K + 2][MAX_K + 1]{};
 uint64_t configCount = 0;
 
 std::string oraclePath, resultsPath, checkpointPath;
+std::string oracleDigest, oracleProvenance;
 Mode mode = Mode::Bound;
 std::string modeText = "bound";
 int horizon = 24;
-std::vector<int> reveals{3, 8, 13, 18, 24};
+std::vector<int> reveals; // populated from periodic p or explicit schedule
 bool reveal[257]{};
 std::string startText, robbersText = "all", hiddenText;
 int threadCount = 1;
 uint64_t ttEntriesRequested = 0;
 bool ttEntriesSet = false;
-uint64_t ttMiB = 2048;
+uint64_t ttMiB = 1024;
 int splitRounds = 8;
 bool forceSplit = false;
 double maxSeconds = 0;
@@ -243,10 +255,9 @@ const char* env(const char* name) {
     return (v && *v) ? v : nullptr;
 }
 bool parseUInt(const std::string& s, uint64_t& out) {
-    if (s.empty() || s.find_first_not_of("0123456789") != std::string::npos || s.size() > 18)
+    if (s.empty() || s.find_first_not_of("0123456789") != std::string::npos || s.size() > 20)
         return false;
-    out = std::stoull(s);
-    return true;
+    try { out = std::stoull(s); return true; } catch (...) { return false; }
 }
 bool parseList(const std::string& s, std::vector<int>& out) {
     out.clear();
@@ -346,6 +357,38 @@ bool loadOracle(std::string& err) {
               std::to_string(K) + ", max degree " + std::to_string(maxDegree) + ")";
         return false;
     }
+    // V5 has no graph digest or completion marker. A manifest binds an operator's
+    // explicit provenance attestation; hashing alone never proves solver correctness.
+    const std::string manifestPath = env("SY_ORACLE_MANIFEST") ? env("SY_ORACLE_MANIFEST") : oraclePath + ".manifest";
+    std::ifstream manifest(manifestPath);
+    std::string magic, graphHash, expectedOracle, completion, trailing;
+    const bool legacy = env("SY_TRUST_LEGACY_ORACLE") && std::string(env("SY_TRUST_LEGACY_ORACLE")) == "1";
+    if (!manifest && !legacy) {
+        err = "oracle provenance missing: supply SY_ORACLE_MANIFEST, or explicitly attest the authentic completed legacy oracle with SY_TRUST_LEGACY_ORACLE=1";
+        return false;
+    }
+    std::cout << "  verifying SHA-256 of complete oracle (sequential read)...\n";
+    sy_provenance::Sha256 fileHash;
+    const uint64_t hashChunk=32ull<<20;
+    for(uint64_t offset=0;offset<oracleMap.size;offset+=hashChunk) {
+        fileHash.update(oracleMap.data+offset,size_t(std::min<uint64_t>(hashChunk,oracleMap.size-offset)));
+        if(oracleMap.size>(1ull<<30) && (offset+hashChunk)%(1ull<<30)==0)
+            std::cout<<"  hashed "<<(offset+hashChunk)/(1ull<<30)<<" GiB\n"<<std::flush;
+    }
+    oracleDigest=fileHash.finish();
+    const std::string actualGraph = sy_provenance::sha256(reinterpret_cast<const uint8_t*>(canonicalGraph.data()), canonicalGraph.size());
+    if (manifest) {
+        manifest >> magic >> graphHash >> expectedOracle >> completion;
+        if (!manifest || (manifest >> trailing) || magic != "SY_ORACLE_MANIFEST_V1" ||
+            graphHash != actualGraph || expectedOracle != oracleDigest ||
+            completion != "operator_attests_completed_fixed_point_same_rules") {
+            err = "oracle manifest invalid or graph/payload digest mismatch"; return false;
+        }
+        oracleProvenance = "manifest_operator_attestation";
+    } else {
+        oracleProvenance = "legacy_operator_attestation";
+        std::cerr << "Warning: trusting operator attestation: legacy oracle is complete and belongs to this exact graph and rules; file format cannot prove this.\n";
+    }
     oracleRows = oracleMap.data + ORACLE_HEADER;
     // Payload p = byte >> 1:  p < base -> unresolved at fixed point = robber escapes (INF)
     //                         p == 127 -> solved but saturated: conservative bound cap + 1
@@ -382,6 +425,10 @@ void warmOracleCache() {
     std::atomic<uint64_t> next{0}, done{0};
     const uint64_t CHUNK = 64ull << 20;
     std::vector<std::thread> pool;
+    struct JoinWarmThreads {
+        std::vector<std::thread>& threads;
+        ~JoinWarmThreads() { for (auto& t : threads) if (t.joinable()) t.join(); }
+    } joinWarm{pool};
     const int warmThreads = std::max(1, std::min(threadCount, 8));
     for (int t = 0; t < warmThreads; ++t)
         pool.emplace_back([&] {
@@ -472,7 +519,7 @@ inline void prefetchRow(uint32_t id) {
 // For every candidate i: score_i = max over r in (cloud \ dest_i) of decoded R(id_i, r).
 // `cloud` is the robber cloud after removing the CURRENT cops; candidates whose destination
 // empties it have already been handled by the caller. Pure function of its inputs.
-void scoreCandidates(Cand* cands, int n, const Cloud& cloud) {
+void scoreCandidatesCPU(Cand* cands, int n, const Cloud& cloud) {
     const int pc = popcount(cloud);
 #ifdef SY_X86
     if (haveAvx2 && pc >= SMALL_CLOUD) {
@@ -506,6 +553,8 @@ void scoreCandidates(Cand* cands, int n, const Cloud& cloud) {
 }
 
 // ----------------------------------------------------------------------------
+#include "sy_gpu_host.hpp"
+
 // Transposition table: shared, lossy, seqlocked, full keys
 // ----------------------------------------------------------------------------
 struct alignas(64) TTEntry {
@@ -520,6 +569,7 @@ struct alignas(64) TTEntry {
 static_assert(sizeof(TTEntry) == 64, "TT entry must be one cache line");
 
 TTEntry* tt = nullptr;
+std::unique_ptr<TTEntry[]> ttStorage; // C++17 aligned allocation honors alignas(64).
 uint64_t ttMask = 0;   // number of 2-entry buckets - 1
 bool ttEnabled = false;
 
@@ -615,6 +665,26 @@ struct Stats {
 
 // LIFO arena of candidate buffers. Blocks never move, so pointers stay valid while frames nest
 // (including frames of tasks executed while helping).
+uint64_t arenaLimitBytes=2048ull<<20, maxRssMiB=24576;
+std::atomic<uint64_t> arenaBytes{0}, arenaPeak{0};
+void reserveArena(uint64_t amount) {
+    uint64_t old=arenaBytes.load();
+    do { if (amount>arenaLimitBytes || old>arenaLimitBytes-amount) throw std::runtime_error("search arena memory budget exhausted"); }
+    while (!arenaBytes.compare_exchange_weak(old,old+amount));
+    uint64_t peak=arenaPeak.load();
+    while (peak<old+amount && !arenaPeak.compare_exchange_weak(peak,old+amount)) {}
+}
+uint64_t residentMiB() {
+#ifdef _WIN32
+    PROCESS_MEMORY_COUNTERS pm{};
+    if (K32GetProcessMemoryInfo(GetCurrentProcess(), &pm, sizeof(pm))) return pm.WorkingSetSize>>20;
+    return 0;
+#else
+    std::ifstream f("/proc/self/statm");uint64_t total=0,resident=0;
+    if(f>>total>>resident) return (resident*uint64_t(sysconf(_SC_PAGESIZE)))>>20;
+    return 0;
+#endif
+}
 struct Arena {
     std::vector<std::unique_ptr<Cand[]>> blocks;
     std::vector<size_t> caps;
@@ -622,16 +692,24 @@ struct Arena {
     struct Mark { size_t block, used; };
     Mark mark() const { return {block, used}; }
     void release(Mark m) { block = m.block; used = m.used; }
+    ~Arena() { for (size_t c:caps) arenaBytes.fetch_sub(c*sizeof(Cand)); }
+    void addBlock(size_t count) {
+        blocks.reserve(blocks.size()+1); caps.reserve(caps.size()+1);
+        reserveArena(uint64_t(count)*sizeof(Cand));
+        try { blocks.emplace_back(new Cand[count]); caps.push_back(count); }
+        catch (...) { arenaBytes.fetch_sub(uint64_t(count)*sizeof(Cand)); throw; }
+    }
     Cand* alloc(size_t n) {
-        if (blocks.empty()) { blocks.emplace_back(new Cand[1 << 18]); caps.push_back(1 << 18); }
+        if (blocks.empty()) {
+            addBlock(std::max<size_t>(n,1 << 18));
+        }
         if (used + n > caps[block]) {
             ++block;
             used = 0;
             while (block < blocks.size() && caps[block] < n) ++block;   // skip too-small blocks
             if (block >= blocks.size()) {
                 const size_t c = std::max<size_t>(n, 1 << 18);
-                blocks.emplace_back(new Cand[c]);
-                caps.push_back(c);
+                addBlock(c);
                 block = blocks.size() - 1;
             }
         }
@@ -650,6 +728,27 @@ thread_local WorkerState* tw = nullptr;
 std::mutex statsMutex;
 Stats totals;
 
+// Task boundaries restore scratch even if a recursive allocation throws. All child
+// task groups are drained before these boundaries return.
+struct ArenaScope {
+    Arena& arena;
+    Arena::Mark mark;
+    explicit ArenaScope(Arena& a) noexcept : arena(a), mark(a.mark()) {}
+    ~ArenaScope() { arena.release(mark); }
+};
+
+void taskFailure() noexcept {
+    // Set stop before attempting diagnostics: even reporting bad_alloc may allocate.
+    gStop.store(true, std::memory_order_relaxed);
+    try {
+        std::lock_guard<std::mutex> lock(stopMutex);
+        stopReason = "worker error (search incomplete)";
+        std::cerr << "\nERROR in search task; unfinished work is UNKNOWN.\n";
+        if (auto e=std::current_exception()) { try { std::rethrow_exception(e); } catch (const std::exception& ex) { std::cerr << ex.what()<<"\n"; } catch (...) {} }
+    } catch (...) {}
+}
+
+
 // Cancellation chain: a split node owns a flag; descendants poll the whole chain.
 struct Cancel {
     std::atomic<bool> flag{false};
@@ -662,7 +761,11 @@ inline bool cancelled(const Cancel* c) {
     return false;
 }
 
+std::atomic<uint64_t> injectedCount{0};
+uint64_t failAfterNodes=0, failQueueAt=0, failThreadAt=0;
+std::atomic<uint64_t> queueAttempts{0};
 inline void countNode() {
+    if (failAfterNodes && injectedCount.fetch_add(1)+1 == failAfterNodes) throw std::bad_alloc();
     WorkerState& w = *tw;
     ++w.stats.nodes;
     if (maxNodes) {
@@ -685,7 +788,7 @@ inline void countNode() {
 struct Task {
     int level = 0;            // 2*round (OR split) or 2*round+1 (AND split); roots = 0
     const void* group = nullptr;
-    virtual void run() = 0;
+    virtual void run() noexcept = 0;
     virtual ~Task() = default;
 };
 
@@ -697,8 +800,11 @@ bool shuttingDown = false;
 std::atomic<int> outstandingRoots{0};
 
 void pushTasks(Task** tasks, int n) {
+    if(failQueueAt && queueAttempts.fetch_add(1)+1==failQueueAt) throw std::bad_alloc();
     {
         std::lock_guard<std::mutex> lock(poolMutex);
+        // Reserve before publishing ANY stack-owned pointer: allocation failure must be atomic.
+        pool.reserve(pool.size() + size_t(n));
         for (int i = n - 1; i >= 0; --i) pool.push_back(tasks[i]);   // first task ends on top
     }
     poolCv.notify_all();
@@ -757,7 +863,9 @@ struct OrGroup {
 struct OrTask final : Task {
     OrGroup* g = nullptr;
     const Cand* cand = nullptr;
-    void run() override {
+    void run() noexcept override {
+        ArenaScope scratch(tw->arena);
+        try {
         if (!cancelled(&g->cancel)) {
             const Res r = evalAction(*cand, *g->b, g->round, &g->cancel);
             if (r == WIN) {
@@ -768,6 +876,11 @@ struct OrTask final : Task {
             }
         } else {
             g->aborted.store(true);
+        }
+        } catch (...) {
+            g->aborted.store(true);
+            g->cancel.flag.store(true);
+            taskFailure();
         }
         g->pending.fetch_sub(1, std::memory_order_release);
     }
@@ -783,7 +896,9 @@ struct AndGroup {
 struct AndTask final : Task {
     AndGroup* g = nullptr;
     int robber = 0;
-    void run() override {
+    void run() noexcept override {
+        ArenaScope scratch(tw->arena);
+        try {
         if (!cancelled(&g->cancel)) {
             Cloud single;
             single.set(robber);
@@ -796,6 +911,11 @@ struct AndTask final : Task {
             }
         } else {
             g->aborted.store(true);
+        }
+        } catch (...) {
+            g->aborted.store(true);
+            g->cancel.flag.store(true);
+            taskFailure();
         }
         g->pending.fetch_sub(1, std::memory_order_release);
     }
@@ -970,7 +1090,7 @@ Res solve(uint32_t cfg, uint32_t cops, Cloud b, int round, const Cancel* chain, 
             const int limit = 2 * (horizon - round + 1) - 1;
             int keep = 0;
             for (int i = 0; i < n; ++i)
-                if (int(cands[i].score) <= limit) cands[keep++] = cands[i];
+                if (cands[i].score != SCORE_INF && int(cands[i].score) <= limit) cands[keep++] = cands[i];
             w.stats.pruned += uint64_t(n - keep);
             n = keep;
         }
@@ -1054,9 +1174,11 @@ bool writeAtomically(const std::string& path, const std::string& content) {
 bool saveCheckpoint() {
     if (checkpointPath.empty()) return true;
     std::ostringstream out;
-    out << "SY_CHECKPOINT_V2\n" << identity << ' ' << results.size() << '\n';
+    out << "SY_CHECKPOINT_V3\n" << identity << ' ' << results.size() << '\n';
     for (const auto& r : results) out << r.value << ' ' << r.hasMove << ' ' << r.move << '\n';
-    if (!writeAtomically(checkpointPath, out.str())) {
+    const std::string body=out.str();
+    const std::string sealed=body+"SHA256 "+sy_provenance::sha256(reinterpret_cast<const uint8_t*>(body.data()),body.size())+"\n";
+    if (!writeAtomically(checkpointPath, sealed)) {
         std::cerr << "Warning: checkpoint write failed: " << checkpointPath << "\n";
         return false;
     }
@@ -1064,12 +1186,18 @@ bool saveCheckpoint() {
 }
 
 bool loadCheckpoint(std::string& err) {
-    std::ifstream in(checkpointPath);
-    if (!in) { err = "cannot open checkpoint " + checkpointPath; return false; }
+    std::ifstream file(checkpointPath, std::ios::binary);
+    if (!file) { err = "cannot open checkpoint " + checkpointPath; return false; }
+    std::string text((std::istreambuf_iterator<char>(file)),std::istreambuf_iterator<char>());
+    const size_t seal=text.rfind("SHA256 ");
+    if(seal==std::string::npos || text.substr(seal+7)!=sy_provenance::sha256(reinterpret_cast<const uint8_t*>(text.data()),seal)+"\n") {
+        err="checkpoint checksum missing or invalid (old format not silently imported)";return false;
+    }
+    std::istringstream in(text.substr(0,seal));
     std::string magic;
     uint64_t id = 0, count = 0;
     in >> magic >> id >> count;
-    if (magic != "SY_CHECKPOINT_V2" || id != identity || count != results.size()) {
+    if (magic != "SY_CHECKPOINT_V3" || id != identity || count != results.size()) {
         err = "checkpoint does not match these inputs";
         return false;
     }
@@ -1089,11 +1217,15 @@ bool loadCheckpoint(std::string& err) {
 }
 
 // ----------------------------------------------------------------------------
+#include "sy_memo_checkpoint.hpp"
+
 // Roots and worker threads
 // ----------------------------------------------------------------------------
 struct RootTask final : Task {
     size_t index = 0;
-    void run() override {
+    void run() noexcept override {
+        ArenaScope scratch(tw->arena);
+        try {
         if (results[index].value == -1) {
             uint32_t mv = 0;
             const Res r = solve(startId, packCops(start), roots[index], 1, nullptr, &mv);
@@ -1107,7 +1239,11 @@ struct RootTask final : Task {
                 saveCheckpoint();
             }
         }
-        outstandingRoots.fetch_sub(1);
+        } catch (...) {
+            taskFailure();
+        }
+        { std::lock_guard<std::mutex> lock(poolMutex); outstandingRoots.fetch_sub(1); }
+        poolCv.notify_all();
     }
 };
 
@@ -1127,12 +1263,7 @@ void workerMain(int /*id*/) {
             t = pool.back();
             pool.pop_back();
         }
-        try {
-            t->run();
-        } catch (const std::exception& e) {
-            std::cerr << "\nERROR in worker: " << e.what() << "\n";
-            requestStop("worker error");
-        }
+        t->run();
     }
     std::lock_guard<std::mutex> lock(statsMutex);
     totals.add(state.stats);
@@ -1154,9 +1285,10 @@ bool loadGraphFile(const char* filename_param, int k_param, int p_param) {
         std::cerr << "Error: k_cops_scotlandyard supports 1..4 cops.\n";
         return true;
     }
-    if (p_param != 1)
-        std::cout << "Note: p=" << p_param
-                  << " ignored; visibility follows the reveal schedule (SY_REVEALS).\n";
+    if (p_param < 1 || p_param > 250) {
+        std::cerr << "Error: positional visibility period must be 1..250.\n";
+        return true;
+    }
 
     Graph g(filename_param);
     if (g.nodeCount <= 0) {
@@ -1216,8 +1348,21 @@ bool loadGraphFile(const char* filename_param, int k_param, int p_param) {
         if (!parseUInt(env("SY_ROUNDS"), x) || x < 1 || x > 250) return fail("SY_ROUNDS must be 1..250");
         horizon = int(x);
     }
-    if (env("SY_REVEALS") && !parseList(env("SY_REVEALS"), reveals))
-        return fail("SY_REVEALS must be a comma list or 'none'");
+    if (env("SY_PERIOD") && env("SY_REVEALS"))
+        return fail("SY_PERIOD and SY_REVEALS are mutually exclusive");
+    if (env("SY_REVEALS")) {
+        if (!parseList(env("SY_REVEALS"), reveals))
+            return fail("SY_REVEALS must be a comma list or 'none'");
+    } else {
+        int period = p_param;
+        if (env("SY_PERIOD")) {
+            if (!parseUInt(env("SY_PERIOD"), x) || x < 1 || x > 250)
+                return fail("SY_PERIOD must be 1..250");
+            period = int(x);
+        }
+        reveals.clear();
+        for (int r = period; r <= horizon; r += period) reveals.push_back(r);
+    }
     for (int r : reveals) {
         if (r < 1 || r > 256) return fail("reveal rounds must be 1..256");
         reveal[r] = true;
@@ -1231,11 +1376,11 @@ bool loadGraphFile(const char* filename_param, int k_param, int p_param) {
         threadCount = int(x);
     }
     if (env("SY_TT_ENTRIES")) {
-        if (!parseUInt(env("SY_TT_ENTRIES"), x)) return fail("bad SY_TT_ENTRIES");
+        if (!parseUInt(env("SY_TT_ENTRIES"), x) || x > (1ull<<30)) return fail("bad SY_TT_ENTRIES");
         ttEntriesRequested = x;
         ttEntriesSet = true;
     } else if (env("SY_TT_MB")) {
-        if (!parseUInt(env("SY_TT_MB"), x)) return fail("bad SY_TT_MB");
+        if (!parseUInt(env("SY_TT_MB"), x) || x > 65536) return fail("bad SY_TT_MB");
         ttMiB = x;
     }
     if (env("SY_SPLIT_ROUNDS")) {
@@ -1251,11 +1396,21 @@ bool loadGraphFile(const char* filename_param, int k_param, int p_param) {
         if (!parseUInt(env("SY_MAX_NODES"), x)) return fail("bad SY_MAX_NODES");
         maxNodes = x;
     }
+    if(env("SY_MEMO_CHECKPOINT")) memoCheckpoint=std::string(env("SY_MEMO_CHECKPOINT"))!="0";
+    if(env("SY_CHECKPOINT_SECONDS") && (!parseUInt(env("SY_CHECKPOINT_SECONDS"),memoInterval) || memoInterval<1)) return fail("bad SY_CHECKPOINT_SECONDS");
+    if (env("SY_ARENA_MB")) {
+        if (!parseUInt(env("SY_ARENA_MB"),x) || x>1048576) return fail("bad SY_ARENA_MB");
+        arenaLimitBytes=x<<20;
+    }
+    if (env("SY_MAX_RSS_MB") && !parseUInt(env("SY_MAX_RSS_MB"),maxRssMiB)) return fail("bad SY_MAX_RSS_MB");
+    if (env("SY_TEST_FAIL_QUEUE") && !parseUInt(env("SY_TEST_FAIL_QUEUE"),failQueueAt)) return fail("bad SY_TEST_FAIL_QUEUE");
+    if (env("SY_TEST_FAIL_THREAD") && !parseUInt(env("SY_TEST_FAIL_THREAD"),failThreadAt)) return fail("bad SY_TEST_FAIL_THREAD");
+    if (env("SY_TEST_FAIL_NODE") && !parseUInt(env("SY_TEST_FAIL_NODE"), failAfterNodes)) return fail("bad SY_TEST_FAIL_NODE");
     warmOracle = !(env("SY_WARM") && std::string(env("SY_WARM")) == "0");
     if (resume && checkpointPath.empty()) return fail("SY_RESUME=1 requires SY_CHECKPOINT");
 
 #ifdef SY_X86
-    haveAvx2 = __builtin_cpu_supports("avx2");
+    haveAvx2 = __builtin_cpu_supports("avx2") && !(env("SY_SCALAR") && std::string(env("SY_SCALAR")) == "1");
 #endif
 
     std::cout << "Scotland Yard oracle-guided solver\n"
@@ -1302,6 +1457,8 @@ bool buildAuxGraph() {
                   << oracleBestPly << ")\n";
         if (warmOracle) warmOracleCache();
     }
+
+    { std::string error; if (!initializeGpu(error)) { std::cerr << "Error: " << error << "\n"; return true; } }
 
     // ---- cop start ----
     if (startText.empty()) {
@@ -1367,14 +1524,14 @@ bool buildAuxGraph() {
     // ---- identity for checkpoints ----
     {
         std::ostringstream key;
-        key << "SY2\n" << canonicalGraph << K << ' ' << startId << ' ' << horizon << ' ' << modeText << '\n';
+        key << "SY3\n" << canonicalGraph << K << ' ' << startId << ' ' << horizon << ' ' << modeText << '\n';
         for (int r : reveals) key << r << ',';
         for (const auto& b : roots) {
             key << '\n';
             for (int w = 0; w < 4; ++w) key << b.words[w] << ',';
         }
         if (mode != Mode::Off) {
-            key << oracleMap.size;
+            key << oracleMap.size << oracleDigest << oracleProvenance;
             for (int i = 0; i < 64; ++i) key << ',' << int(oracleMap.data[i]);
         }
         identity = fingerprint(key.str());
@@ -1385,8 +1542,9 @@ bool buildAuxGraph() {
     if (entries >= 2) {
         uint64_t buckets = 1;
         while (buckets * 2 * 2 <= entries) buckets *= 2;
-        mem.requestAlloc("Transposition Table", size_t(buckets * 2), &tt);
-        mem.allocate();
+        ttStorage.reset(new TTEntry[size_t(buckets * 2)]{});
+        tt = ttStorage.get();
+        mem.trackExternal("Transposition Table", size_t(buckets*2)*sizeof(TTEntry), tt);
         if (!tt) {
             std::cerr << "Error: cannot allocate transposition table.\n";
             return true;
@@ -1409,7 +1567,7 @@ bool initializeCaptures() {
     if (!checkpointPath.empty()) {
         if (resume) {
             std::string err;
-            if (!loadCheckpoint(err)) {
+            if (!loadCheckpoint(err) || !loadMemo(err)) {
                 std::cerr << "Error: " << err << "\n";
                 return true;
             }
@@ -1430,7 +1588,7 @@ bool initializeCaptures() {
     std::cout << "  immediate captures: " << immediate;
     if (resume) std::cout << ", resumed roots: " << resumed;
     std::cout << "\n";
-    return false;
+    return !saveCheckpoint();
 }
 
 // ============================================================================
@@ -1440,6 +1598,7 @@ bool mainLoop() {
     std::signal(SIGINT, onSignal);
     std::signal(SIGTERM, onSignal);
     runStart = std::chrono::steady_clock::now();
+    if(maxRssMiB && residentMiB()>maxRssMiB) requestStop("resident memory budget");
 
     std::vector<RootTask> rootTasks(roots.size());
     std::vector<Task*> ptrs;
@@ -1454,13 +1613,42 @@ bool mainLoop() {
     std::cout << "Searching " << ptrs.size() << " root(s) with " << threadCount << " thread(s)...\n";
 
     std::vector<std::thread> workers;
-    for (int t = 0; t < threadCount; ++t) workers.emplace_back(workerMain, t);
-    if (!ptrs.empty()) pushTasks(ptrs.data(), int(ptrs.size()));
+    try {
+        workers.reserve(size_t(threadCount));
+        for (int t = 0; t < threadCount; ++t) {
+            if(failThreadAt==uint64_t(t+1)) throw std::runtime_error("injected thread startup failure");
+            workers.emplace_back(workerMain, t);
+        }
+        if (!ptrs.empty()) pushTasks(ptrs.data(), int(ptrs.size()));
+    } catch (...) {
+        taskFailure();
+        {
+            std::lock_guard<std::mutex> lock(poolMutex);
+            shuttingDown = true;
+        }
+        poolCv.notify_all();
+        for (auto& t : workers) if (t.joinable()) t.join();
+        // No tasks were published if queue reservation failed; results stay UNKNOWN.
+        return false;
+    }
 
     auto last = std::chrono::steady_clock::now();
+    auto memoryCheck = last;
+    auto memoCheck = last;
     while (outstandingRoots.load() > 0) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        {
+            std::unique_lock<std::mutex> lock(poolMutex);
+            poolCv.wait_for(lock,std::chrono::milliseconds(20),[]{return outstandingRoots.load()==0;});
+        }
         auto now = std::chrono::steady_clock::now();
+        if (memoCheckpoint && !checkpointPath.empty() && now-memoCheck>=std::chrono::seconds(memoInterval)) {
+            if(!saveMemo()) std::cerr<<"Warning: memo checkpoint failed; previous snapshot retained.\n";
+            memoCheck=std::chrono::steady_clock::now();
+        }
+        if (now-memoryCheck >= std::chrono::seconds(1)) {
+            if (maxRssMiB && residentMiB()>maxRssMiB) requestStop("resident memory budget");
+            memoryCheck=now;
+        }
         if (interrupted) requestStop("interrupted");
         if (maxSeconds > 0 && std::chrono::duration<double>(now - runStart).count() >= maxSeconds)
             requestStop("time budget");
@@ -1546,8 +1734,9 @@ bool findFinalResult() {
 // 6. outputData  (results JSON + final checkpoint)
 // ============================================================================
 bool outputData() {
+    if(!saveMemo()) std::cerr<<"Warning: final memo checkpoint failed.\n";
     std::ostringstream js;
-    js << "{\"status\":\"" << verdict << "\",\"graph\":\"" << graphStem << "\",\"cops\":" << K
+    js << "{\"status\":\"" << verdict << "\",\"graph\":\"" << sy_provenance::jsonEscape(graphStem) << "\",\"cops\":" << K
        << ",\"rounds\":" << horizon << ",\"reveals\":[";
     for (size_t i = 0; i < reveals.size(); ++i) js << (i ? "," : "") << reveals[i];
     js << "],\"oracle_mode\":\"" << modeText << "\",\"start\":" << copsText(packCops(start))
@@ -1562,7 +1751,15 @@ bool outputData() {
     }
     js << "],\"nodes\":" << totals.nodes << ",\"oracle_rows\":" << totals.scored
        << ",\"pruned\":" << totals.pruned << ",\"tt_hits\":" << totals.ttHits
-       << ",\"splits\":" << totals.splits << ",\"seconds\":" << solveSeconds << "}\n";
+       << ",\"splits\":" << totals.splits << ",\"seconds\":" << solveSeconds
+       << ",\"memo_loaded\":" << memoLoaded << ",\"memo_saved\":" << memoSaved
+       << ",\"arena_peak_bytes\":" << arenaPeak.load()
+       << ",\"gpu_batches\":" << gpu.batches.load() << ",\"gpu_rows\":" << gpu.rows.load()
+       << ",\"gpu_refined\":" << gpu.refined.load() << ",\"gpu_busy_fallbacks\":" << gpu.busy.load()
+       << ",\"gpu_disabled\":" << (gpu.disabled?"true":"false")
+       << ",\"gpu_errors\":" << gpu.errors.load() << ",\"gpu_setup_seconds\":" << gpu.setupSeconds
+       << ",\"gpu_score_seconds\":" << gpu.scoreSeconds
+       << ",\"stop_reason\":\"" << sy_provenance::jsonEscape(stopReason) << "\"}\n";
     if (!writeAtomically(resultsPath, js.str())) {
         std::cerr << "Error: cannot write results " << resultsPath << "\n";
         return true;

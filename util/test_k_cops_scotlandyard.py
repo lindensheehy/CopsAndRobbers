@@ -40,6 +40,7 @@ def runtime_env():
 
 
 BASE_ENV = runtime_env()
+BASE_ENV["SY_TRUST_LEGACY_ORACLE"] = "1"  # generated below by independent exhaustive reference
 
 
 class Runner:

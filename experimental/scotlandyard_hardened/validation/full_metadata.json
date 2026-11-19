@@ -1,0 +1,11 @@
+{
+  "suite": "full",
+  "threads": 4,
+  "seconds": 3,
+  "repeats": 1,
+  "oracle_modes": [
+    "bound"
+  ],
+  "gpu": false,
+  "note": "Process wall time includes setup/hash/upload; solver seconds exclude setup. OS cache is not forcibly cold. Timeouts are censored, not completed timings."
+}
