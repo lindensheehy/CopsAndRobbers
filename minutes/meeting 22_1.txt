@@ -1,0 +1,52 @@
+meeting 22_1
+
+so one solution for double move is double the number of vertecies where it can be double as used or not - you have 2 options.
+
+in the graph scotland yard if a robber does go to a node, and then come back to previous using double move - 
+in the aux graph - you will not have no an option afterards for double move - it deletes second option afterwards. 
+
+An interesting rule - if 1 cop is cornered (can not do a move) - it might be a loss but it is rare.
+
+Each cop has to move and each cop moves in any order 1 at the time. 
+
+We consider a loss and in reality - after googling on the meeting we realized: community of PLAYERS say that blocking a cop by other cops is fine, 
+it is the only way to stay in one place but its a bit difficult progremmatically.
+
+ok we concluded we keep a loss for cops not being able to move - edge case, rare but useful.
+
+Double move seems possible.
+
+How do we handle a black ticket? 
+
+one possibility is you analyze every variation of the game if the robber uses black ticket at each round preemptively:
+we add black ticket on round 1, on round 2, on top of already premade 
+
+we COULD handle invisible ticket same as double move, - have that as an option, 
+
+another idea - we FORCE robber to use black ticket at some moment (forced) - but if we KNOW robber is forced to use the ticket at certain round we might adapt srategy "anticipating"
+
+if the strat remains the same - then it could be fine. We need a path to a winning node in all scenarios that even if they would or would not use black ticket that point - 
+is the problem.
+
+Double move we will keep as second option always, but as a black ticket - not much. 
+
+how about using both tickets? Black and double:
+
+by rules he can use both, but we also need to be careful - robber can not "JUMP" on cop during double move or insvisible move. 
+
+Important note if you are using double move during invisible turn - you will SEE where robber moved, and then he would turn invisible. 
+
+so its not that the robber has a double its just robber moves - it is still cops turn it is just cops are not allowed to move, it is basically cops just skip a turn. 
+
+we can consider it is a FREEZE move for cops. the round PASSES.
+
+the big difference is one extra round passes but we still got now 2 options - cops freeze or no. 
+
+the rules are clear for the double but you can use a black ticket in combination with the double move and robber gets to choose which move to conceal out of 2. 
+
+we can start with just double move ticket and then we try black ticket. 
+
+Also we should try with 2 cops. any combination of start uses AND you can not use 2 cops btw in begginers.
+
+Anyhow we try double move, black ticket not sure but we discussed POSSIBILITIES. 
+
