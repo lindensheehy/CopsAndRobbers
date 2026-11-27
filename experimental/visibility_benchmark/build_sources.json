@@ -1,0 +1,18 @@
+{
+  "solvers\\k_cops_visibility_v3.cpp": "75c644ab9ac85aa9bb2e3064883928970801579f7ef39616479c8ae80ab5d3a4",
+  "solvers\\k_cops_fullvis_v5.cpp": "3f23841f1a5d48b11e4c69aa4d0456f195d5c986a5aca7b86f4a89245f4abaa5",
+  "lib\\include\\AdjacencyList.h": "bdad07a601a659a4bfd7819392f8049de0ebe770944d6b1a88205d5f82df9450",
+  "lib\\include\\Allocator.h": "1262d015b8c7b2a854efc8a7a38c34436ade7b985dcb21e7d44ea14f5ecf9cc4",
+  "lib\\include\\AuxGraph.h": "fbb4a6d596e57f2fda6350dfd66d3336239ba128906fdd9f4b1a01a64c4b4f22",
+  "lib\\include\\CacheManager.h": "5fd1e609c9816bcc464683881d3db76a88e4f9212b8a7ce0f0f38dd24228cf1a",
+  "lib\\include\\fileio.h": "eafadba69f62ae4669a1bd46e2c9046b46bb9d71da58cf753b21580b4c21ace4",
+  "lib\\include\\Graph.h": "afd66c5453788b082ef83f40a1272e177751975c1a6ead517c3faba3233be4c5",
+  "lib\\include\\PackedAdjMatrix.h": "8fdc7579a213e5c2d6c50de2d09d5b78c9de2096714e5eb3985505a7069aaf8c",
+  "lib\\include\\Profiler.h": "751fa1ba7a1292d65e71d909ab05188e471675be68f420b9d759c54c6b6f2ef7",
+  "lib\\include\\VertexBitField.h": "530ca2810d894fd3a6bcd8968ef7a2efac1448c6ba33313cc3b5654c166e3d64",
+  "lib\\src\\AdjacencyList.cpp": "f3b5023fffb7c1752c8febbca416437a66d813e1e88ef8cd351f2560429a7efc",
+  "lib\\src\\Allocator.cpp": "d7270800a556324df88b823567b4062c5c694fe0b9342c1d3c194c91334800cc",
+  "lib\\src\\fileio.cpp": "4d78674b8227909857796cf084301eb60fffb38720907afb52131b3965194284",
+  "lib\\src\\Graph.cpp": "305346b66c018a7173d62c77b08a5205b24947e959f8b88483d86b94d5876d4f",
+  "lib\\src\\Profiler.cpp": "0610d694a1edd176055d9cab5876ea2fbec8b65a1a3d598c886ddc23c61f1b47"
+}

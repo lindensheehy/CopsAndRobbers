@@ -1,0 +1,8 @@
+RESULT: WIN. 3 cops starting on {41, 46, 124}, robber starting on 82, 13 rounds: the cops can guarantee a capture.
+  robber's first move to 65: cops win by moving to {1, 15, 77}
+  robber's first move to 66: cops win by moving to {1, 15, 77}
+  robber's first move to 67: cops win by moving to {1, 15, 77}
+  robber's first move to 81: cops win by moving to {1, 15, 77}
+  robber's first move to 100: cops win by moving to {1, 15, 77}
+  robber's first move to 101: cops win by moving to {1, 15, 77}
+  robber's first move to 140: cops win by moving to {1, 15, 77}

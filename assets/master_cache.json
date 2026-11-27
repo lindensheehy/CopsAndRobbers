@@ -54,8 +54,13 @@
         "Positions (Optional)": "assets\\positions\\scotlandyard.txt"
     },
     "k_cops_visibility.exe": {
-        "Graph File": "..\\assets\\matrices\\scotlandyard-all.txt",
+        "Graph File": "assets\\matrices\\line4.txt",
         "Number of Cops": "2",
         "Visibility (p)": "2"
+    },
+    "k_cops_visibility_v2.exe": {
+        "Graph File": "assets\\matrices\\scotlandyard-all.txt",
+        "Number of Cops": "3",
+        "Visibility (p)": "1"
     }
 }
